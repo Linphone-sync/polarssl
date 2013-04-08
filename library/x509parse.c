@@ -66,6 +66,7 @@
 #include <stdlib.h>
 #if defined(_WIN32)
 #include <windows.h>
+#include <strsafe.h>
 #else
 #include <time.h>
 #endif
@@ -1889,6 +1890,7 @@ int x509parse_crtpath( x509_cert *chain, const char *path )
     char filename[MAX_PATH];
 	char *p;
     int len = strlen( path );
+	size_t cFileNameLen = 0;
 
 	WIN32_FIND_DATAW file_data;
     HANDLE hFind;
@@ -1903,9 +1905,9 @@ int x509parse_crtpath( x509_cert *chain, const char *path )
 	p = filename + len;
     filename[len++] = '*';
 
-	w_ret = MultiByteToWideChar( CP_ACP, 0, path, len, szDir, MAX_PATH - 3 );
+	w_ret = MultiByteToWideChar( CP_ACP, 0, filename, len, szDir, MAX_PATH - 3 );
 
-    hFind = FindFirstFileW( szDir, &file_data );
+    hFind = FindFirstFileExW( szDir, FindExInfoStandard, &file_data, FindExSearchNameMatch, NULL, 0 );
     if (hFind == INVALID_HANDLE_VALUE) 
         return( POLARSSL_ERR_X509_FILE_IO_ERROR );
 
@@ -1917,8 +1919,12 @@ int x509parse_crtpath( x509_cert *chain, const char *path )
         if( file_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY )
             continue;
 
+		if( StringCchLengthW( file_data.cFileName, MAX_PATH, &cFileNameLen ) != S_OK )
+		{
+			cFileNameLen = 0;
+		}
 		w_ret = WideCharToMultiByte( CP_ACP, 0, file_data.cFileName,
-									 lstrlenW(file_data.cFileName),
+									 cFileNameLen,
 									 p, len - 1,
 									 NULL, NULL );
 
