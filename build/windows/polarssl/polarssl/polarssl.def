@@ -3,6 +3,7 @@ EXPORTS
 	base64_encode
 	error_strerror
 	ssl_close_notify
+	ssl_free
 	ssl_handshake
 	ssl_init
 	ssl_read
