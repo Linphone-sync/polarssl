@@ -46,11 +46,11 @@
 #include "zlib.h"
 #endif
 
-#if defined(_MSC_VER) && !defined(inline)
-#define inline _inline
+#if defined(_MSC_VER)
+#define POLARSSL_INLINE _inline
 #else
-#if defined(__ARMCC_VERSION) && !defined(inline)
-#define inline __inline
+#if defined(__ARMCC_VERSION)
+#define POLARSSL_INLINE __inline
 #endif /* __ARMCC_VERSION */
 #endif /*_MSC_VER */
 
@@ -537,7 +537,7 @@ extern int (*ssl_hw_record_finish)(ssl_context *ssl);
  * \return              a statically allocated array of ciphersuites, the last
  *                      entry is 0.
  */
-static inline const int *ssl_list_ciphersuites( void )
+static POLARSSL_INLINE const int *ssl_list_ciphersuites( void )
 {
     return ssl_default_ciphersuites;
 }
