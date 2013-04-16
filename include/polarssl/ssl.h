@@ -83,11 +83,11 @@
 #define POLARSSL_KEY_EXCHANGE__SOME__PSK_ENABLED
 #endif
 
-#if defined(_MSC_VER) && !defined(inline)
-#define inline _inline
+#if defined(_MSC_VER)
+#define POLARSSL_INLINE _inline
 #else
-#if defined(__ARMCC_VERSION) && !defined(inline)
-#define inline __inline
+#if defined(__ARMCC_VERSION)
+#define POLARSSL_INLINE __inline
 #endif /* __ARMCC_VERSION */
 #endif /*_MSC_VER */
 
