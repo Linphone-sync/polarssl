@@ -88,6 +88,8 @@
 #else
 #if defined(__ARMCC_VERSION)
 #define POLARSSL_INLINE __inline
+#else
+#define POLARSSL_INLINE inline
 #endif /* __ARMCC_VERSION */
 #endif /*_MSC_VER */
 
