@@ -546,7 +546,8 @@
 
 #endif /* TriCore */
 
-#if defined(__arm__)
+//#if defined(__arm__)
+#if 0
 
 #if defined(__thumb__)
 
