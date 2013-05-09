@@ -100,7 +100,7 @@ libpolarssl.dll: libpolarssl.a
 
 .c.o:
 	echo "  CC    $<"
-	$(CC) $(CFLAGS) $(OFLAGS) -c $<
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(OFLAGS) -c $<
 
 clean:
 ifndef WINDOWS
