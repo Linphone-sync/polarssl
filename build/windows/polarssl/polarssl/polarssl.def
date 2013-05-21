@@ -7,6 +7,7 @@ EXPORTS
 	ssl_handshake
 	ssl_init
 	ssl_read
+	ssl_session_reset
 	ssl_set_authmode
 	ssl_set_bio
 	ssl_set_ca_chain
