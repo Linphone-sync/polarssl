@@ -66,7 +66,12 @@
 #include <stdlib.h>
 #if defined(_WIN32)
 #include <windows.h>
+
+#ifdef _MSC_VER
 #include <strsafe.h>
+#endif
+
+
 #else
 #include <time.h>
 #endif
@@ -1885,6 +1890,7 @@ int x509parse_crtpath( x509_cert *chain, const char *path )
 {
     int ret = 0;
 #if defined(_WIN32)
+#ifdef _MSC_VER
     int w_ret;
     WCHAR szDir[MAX_PATH];
     char filename[MAX_PATH];
@@ -1944,6 +1950,9 @@ int x509parse_crtpath( x509_cert *chain, const char *path )
 
 cleanup:
     FindClose( hFind );
+#else
+    ret=-1;
+#endif
 #else
     int t_ret;
     struct dirent *entry;
