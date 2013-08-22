@@ -24,6 +24,7 @@ install:
 	cp library/libpolarssl.* $(DESTDIR)/lib
 	
 	mkdir -p $(DESTDIR)/bin
+	cp library/libpolarssl*.dll $(DESTDIR)/bin
 	for p in programs/*/* ; do              \
 	    if [ -x $$p ] && [ ! -d $$p ] ;     \
 	    then                                \
@@ -31,10 +32,13 @@ install:
 	        cp $$p $(DESTDIR)/bin/$$f ;     \
 	    fi                                  \
 	done
+	
+	rm -f $(DESTDIR)/lib/libpolarssl*.dll
 
 uninstall:
 	rm -rf $(DESTDIR)/include/polarssl
 	rm -f $(DESTDIR)/lib/libpolarssl.*
+	rm -f $(DESTDIR)/bin/libpolarssl*.dll
 	
 	for p in programs/*/* ; do              \
 	    if [ -x $$p ] && [ ! -d $$p ] ;     \

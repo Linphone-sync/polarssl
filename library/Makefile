@@ -94,9 +94,9 @@ libpolarssl.dylib: libpolarssl.a
 	echo "  LD    $@"
 	$(CC) ${LDFLAGS} -dynamiclib -o $@ $(OBJS)
 
-libpolarssl.dll: libpolarssl.a
-	echo "  LD    $@"
-	$(CC) -shared -Wl,-soname,$@ -o $@ $(OBJS) -lws2_32 -lwinmm -lgdi32
+libpolarssl.dll: libpolarssl.a 
+	echo "  LD    $@" 
+	$(CC) -shared -Wl,-soname,$@,--out-implib,$@.a -o $@ $(OBJS) -lws2_32 -lwinmm -lgdi32 
 
 .c.o:
 	echo "  CC    $<"
