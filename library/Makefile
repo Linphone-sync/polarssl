@@ -79,7 +79,7 @@ libpolarssl.dylib: libpolarssl.a
 
 libpolarssl.dll: libpolarssl.a 
 	echo "  LD    $@" 
-	$(CC) -shared -Wl,-soname,$@ -o $@ $(OBJS) -lws2_32 -lwinmm -lgdi32 
+	$(CC) -shared -Wl,-soname,$@,--out-implib,$@.a -o $@ $(OBJS) -lws2_32 -lwinmm -lgdi32 
 
 .c.o:
 	echo "  CC    $<"
