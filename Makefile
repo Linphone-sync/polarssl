@@ -24,7 +24,7 @@ install:
 	cp library/libpolarssl.* $(DESTDIR)/lib
 	
 	mkdir -p $(DESTDIR)/bin
-	cp library/libpolarssl*.dll $(DESTDIR)/bin
+	cp -f library/libpolarssl*.dll $(DESTDIR)/bin
 	for p in programs/*/* ; do              \
 	    if [ -x $$p ] && [ ! -d $$p ] ;     \
 	    then                                \
