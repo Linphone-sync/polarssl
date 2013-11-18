@@ -5,16 +5,16 @@ PREFIX=polarssl_
 .SILENT:
 
 all:
-	cd library  && $(MAKE) all && cd ..
+	cd library  && $(MAKE) -f Makefile.orig all && cd ..
 	cd programs && $(MAKE) all && cd ..
 	cd tests    && $(MAKE) all && cd ..
 
 no_test:
-	cd library  && $(MAKE) all && cd ..
+	cd library  && $(MAKE) -f Makefile.orig all && cd ..
 	cd programs && $(MAKE) all && cd ..
 
 lib:
-	cd library  && $(MAKE) all && cd ..
+	cd library  && $(MAKE) -f Makefile.orig all && cd ..
 
 install:
 	mkdir -p $(DESTDIR)/include/polarssl
@@ -55,7 +55,7 @@ endif
 	done
 
 clean:
-	cd library  && $(MAKE) clean && cd ..
+	cd library  && $(MAKE) -f Makefile.orig clean && cd ..
 	cd programs && $(MAKE) clean && cd ..
 	cd tests    && $(MAKE) clean && cd ..
 
