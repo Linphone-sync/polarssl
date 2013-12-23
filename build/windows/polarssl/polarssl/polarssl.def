@@ -24,3 +24,4 @@ EXPORTS
 	x509parse_crtfile
 	x509parse_crtpath
 	x509parse_key
+	x509parse_keyfile
