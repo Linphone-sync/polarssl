@@ -5,6 +5,7 @@ if(INSTALL_POLARSSL_HEADERS)
 file(GLOB headers "polarssl/*.h")
 
 install(FILES ${headers}
+		COMPONENT COMP_libpolarssl
         DESTINATION include/polarssl
         PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ)
 
