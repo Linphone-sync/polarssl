@@ -69,6 +69,11 @@ set(src
 )
 
 if(WIN32)
+set(src
+	${src}
+	libpolarssl.def
+)
+
 set(libs ws2_32)
 endif(WIN32)
 
@@ -84,14 +89,14 @@ add_library(polarssl STATIC ${src})
 else(NOT USE_SHARED_POLARSSL_LIBRARY)
 
 add_library(polarssl SHARED ${src})
-set_target_properties(polarssl PROPERTIES VERSION 1.3.4 SOVERSION 5)
+set_target_properties(libpolarssl PROPERTIES VERSION 1.3.4 SOVERSION 5)
 
 endif(NOT USE_SHARED_POLARSSL_LIBRARY)
 
-target_link_libraries(polarssl ${libs})
+target_link_libraries(libpolarssl ${libs})
 
 if(ZLIB_FOUND)
-target_link_libraries(polarssl ${ZLIB_LIBRARIES})
+target_link_libraries(libpolarssl ${ZLIB_LIBRARIES})
 endif(ZLIB_FOUND)
 
 install(TARGETS polarssl
