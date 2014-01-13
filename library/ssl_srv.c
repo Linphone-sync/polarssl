@@ -647,7 +647,8 @@ static int ssl_parse_client_hello( ssl_context *ssl )
         for( j = 0, p = buf + 41 + sess_len; j < ciph_len;
             j += 2, p += 2 )
         {
-            if( p[0] == 0 && p[1] == ssl->ciphersuites[ssl->minor_ver][i] )
+            if( p[0] == 0 && p[1] == ssl->ciphersuites[ssl->minor_ver][i] &&
+                ssl_get_ciphersuite_min_version( p[1] ) <= ssl->minor_ver )
                 goto have_ciphersuite;
         }
     }
@@ -864,31 +865,34 @@ static int ssl_write_server_hello( ssl_context *ssl )
     SSL_DEBUG_MSG( 3, ( "server hello, compress alg.: %d",
                    ssl->session_negotiate->compression ) );
 
-    SSL_DEBUG_MSG( 3, ( "server hello, prepping for secure renegotiation extension" ) );
-    ext_len += 5 + ssl->verify_data_len * 2;
+    if( ssl->secure_renegotiation == SSL_SECURE_RENEGOTIATION )
+    {
+        SSL_DEBUG_MSG( 3, ( "server hello, prepping for secure renegotiation extension" ) );
+        ext_len += 5 + ssl->verify_data_len * 2;
 
-    SSL_DEBUG_MSG( 3, ( "server hello, total extension length: %d",
-                   ext_len ) );
+        SSL_DEBUG_MSG( 3, ( "server hello, total extension length: %d",
+                       ext_len ) );
 
-    *p++ = (unsigned char)( ( ext_len >> 8 ) & 0xFF );
-    *p++ = (unsigned char)( ( ext_len      ) & 0xFF );
+        *p++ = (unsigned char)( ( ext_len >> 8 ) & 0xFF );
+        *p++ = (unsigned char)( ( ext_len      ) & 0xFF );
 
-    /*
-     * Secure renegotiation
-     */
-    SSL_DEBUG_MSG( 3, ( "client hello, secure renegotiation extension" ) );
+        /*
+         * Secure renegotiation
+         */
+        SSL_DEBUG_MSG( 3, ( "client hello, secure renegotiation extension" ) );
 
-    *p++ = (unsigned char)( ( TLS_EXT_RENEGOTIATION_INFO >> 8 ) & 0xFF );
-    *p++ = (unsigned char)( ( TLS_EXT_RENEGOTIATION_INFO      ) & 0xFF );
+        *p++ = (unsigned char)( ( TLS_EXT_RENEGOTIATION_INFO >> 8 ) & 0xFF );
+        *p++ = (unsigned char)( ( TLS_EXT_RENEGOTIATION_INFO      ) & 0xFF );
 
-    *p++ = 0x00;
-    *p++ = ( ssl->verify_data_len * 2 + 1 ) & 0xFF;
-    *p++ = ssl->verify_data_len * 2 & 0xFF;
+        *p++ = 0x00;
+        *p++ = ( ssl->verify_data_len * 2 + 1 ) & 0xFF;
+        *p++ = ssl->verify_data_len * 2 & 0xFF;
 
-    memcpy( p, ssl->peer_verify_data, ssl->verify_data_len );
-    p += ssl->verify_data_len;
-    memcpy( p, ssl->own_verify_data, ssl->verify_data_len );
-    p += ssl->verify_data_len;
+        memcpy( p, ssl->peer_verify_data, ssl->verify_data_len );
+        p += ssl->verify_data_len;
+        memcpy( p, ssl->own_verify_data, ssl->verify_data_len );
+        p += ssl->verify_data_len;
+    }
 
     ssl->out_msglen  = p - buf;
     ssl->out_msgtype = SSL_MSG_HANDSHAKE;
@@ -969,7 +973,7 @@ static int ssl_write_certificate_request( ssl_context *ssl )
     crt = ssl->ca_chain;
 
     total_dn_size = 0;
-    while( crt != NULL )
+    while( crt != NULL && crt->version != 0)
     {
         if( p - buf > 4096 )
             break;
@@ -1373,7 +1377,8 @@ static int ssl_parse_client_key_exchange( ssl_context *ssl )
         }
 
         if( ssl->rsa_key ) {
-            ret = ssl->rsa_decrypt( ssl->rsa_key, RSA_PRIVATE,
+            ret = ssl->rsa_decrypt( ssl->rsa_key, ssl->f_rng, ssl->p_rng,
+                                    RSA_PRIVATE,
                                    &ssl->handshake->pmslen,
                                     ssl->in_msg + i,
                                     ssl->handshake->premaster,
@@ -1494,7 +1499,8 @@ static int ssl_parse_certificate_verify( ssl_context *ssl )
         return( POLARSSL_ERR_SSL_BAD_HS_CERTIFICATE_VERIFY );
     }
 
-    ret = rsa_pkcs1_verify( &ssl->session_negotiate->peer_cert->rsa, RSA_PUBLIC,
+    ret = rsa_pkcs1_verify( &ssl->session_negotiate->peer_cert->rsa, 
+                            NULL, NULL, RSA_PUBLIC,
                             hash_id, hashlen, hash, ssl->in_msg + 6 + n );
     if( ret != 0 )
     {

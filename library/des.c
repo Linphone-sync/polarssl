@@ -1,7 +1,7 @@
 /*
  *  FIPS-46-3 compliant Triple-DES implementation
  *
- *  Copyright (C) 2006-2010, Brainspark B.V.
+ *  Copyright (C) 2006-2013, Brainspark B.V.
  *
  *  This file is part of PolarSSL (http://www.polarssl.org)
  *  Lead Maintainer: Paul Bakker <polarssl_maintainer at polarssl.org>
@@ -34,6 +34,8 @@
 #if defined(POLARSSL_DES_C)
 
 #include "polarssl/des.h"
+
+#if !defined(POLARSSL_DES_ALT)
 
 /*
  * 32-bit integer manipulation macros (big endian)
@@ -751,6 +753,8 @@ int des3_crypt_cbc( des3_context *ctx,
     return( 0 );
 }
 
+#endif /* !POLARSSL_DES_ALT */
+
 #if defined(POLARSSL_SELF_TEST)
 
 #include <stdio.h>
@@ -838,27 +842,27 @@ int des_self_test( int verbose )
         switch( i )
         {
         case 0:
-            des_setkey_dec( &ctx, (unsigned char *) des3_test_keys );
+            des_setkey_dec( &ctx, des3_test_keys );
             break;
 
         case 1:
-            des_setkey_enc( &ctx, (unsigned char *) des3_test_keys );
+            des_setkey_enc( &ctx, des3_test_keys );
             break;
 
         case 2:
-            des3_set2key_dec( &ctx3, (unsigned char *) des3_test_keys );
+            des3_set2key_dec( &ctx3, des3_test_keys );
             break;
 
         case 3:
-            des3_set2key_enc( &ctx3, (unsigned char *) des3_test_keys );
+            des3_set2key_enc( &ctx3, des3_test_keys );
             break;
 
         case 4:
-            des3_set3key_dec( &ctx3, (unsigned char *) des3_test_keys );
+            des3_set3key_dec( &ctx3, des3_test_keys );
             break;
 
         case 5:
-            des3_set3key_enc( &ctx3, (unsigned char *) des3_test_keys );
+            des3_set3key_enc( &ctx3, des3_test_keys );
             break;
 
         default:
@@ -911,27 +915,27 @@ int des_self_test( int verbose )
         switch( i )
         {
         case 0:
-            des_setkey_dec( &ctx, (unsigned char *) des3_test_keys );
+            des_setkey_dec( &ctx, des3_test_keys );
             break;
 
         case 1:
-            des_setkey_enc( &ctx, (unsigned char *) des3_test_keys );
+            des_setkey_enc( &ctx, des3_test_keys );
             break;
 
         case 2:
-            des3_set2key_dec( &ctx3, (unsigned char *) des3_test_keys );
+            des3_set2key_dec( &ctx3, des3_test_keys );
             break;
 
         case 3:
-            des3_set2key_enc( &ctx3, (unsigned char *) des3_test_keys );
+            des3_set2key_enc( &ctx3, des3_test_keys );
             break;
 
         case 4:
-            des3_set3key_dec( &ctx3, (unsigned char *) des3_test_keys );
+            des3_set3key_dec( &ctx3, des3_test_keys );
             break;
 
         case 5:
-            des3_set3key_enc( &ctx3, (unsigned char *) des3_test_keys );
+            des3_set3key_enc( &ctx3, des3_test_keys );
             break;
 
         default:

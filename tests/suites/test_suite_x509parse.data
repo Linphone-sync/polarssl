@@ -80,7 +80,7 @@ x509_crl_info:"data_files/crl_sha512.pem":"CRL version   \: 1\nissuer name   \: 
 
 X509 Parse Key #1 (No password when required)
 depends_on:POLARSSL_MD5_C:POLARSSL_PEM_C:POLARSSL_FS_IO
-x509parse_keyfile:"data_files/test-ca.key":NULL:POLARSSL_ERR_PEM_PASSWORD_REQUIRED
+x509parse_keyfile:"data_files/test-ca.key":NULL:POLARSSL_ERR_X509_PASSWORD_REQUIRED
 
 X509 Parse Key #2 (Correct password)
 depends_on:POLARSSL_MD5_C:POLARSSL_PEM_C:POLARSSL_FS_IO
@@ -88,7 +88,7 @@ x509parse_keyfile:"data_files/test-ca.key":"PolarSSLTest":0
 
 X509 Parse Key #3 (Wrong password)
 depends_on:POLARSSL_MD5_C:POLARSSL_PEM_C:POLARSSL_FS_IO
-x509parse_keyfile:"data_files/test-ca.key":"PolarSSLWRONG":POLARSSL_ERR_PEM_PASSWORD_MISMATCH
+x509parse_keyfile:"data_files/test-ca.key":"PolarSSLWRONG":POLARSSL_ERR_X509_PASSWORD_MISMATCH
 
 X509 Parse Key #4 (DES Encrypted)
 depends_on:POLARSSL_MD5_C:POLARSSL_DES_C:POLARSSL_PEM_C:POLARSSL_FS_IO
@@ -113,6 +113,74 @@ x509parse_keyfile:"data_files/keyfile.aes256":"testkey":0
 X509 Parse Key #9 (PKCS#8 wrapped)
 depends_on:POLARSSL_MD5_C:POLARSSL_PEM_C:POLARSSL_FS_IO
 x509parse_keyfile:"data_files/format_gen.key":"":0
+
+X509 Parse Key #10 (PKCS#8 encrypted SHA1-3DES)
+depends_on:POLARSSL_DES_C:POLARSSL_SHA1_C:POLARSSL_PEM_C:POLARSSL_FS_IO:POLARSSL_PKCS12_C
+x509parse_keyfile:"data_files/pkcs8_pbe_sha1_3des.key":"PolarSSLTest":0
+
+X509 Parse Key #10.1 (PKCS#8 encrypted SHA1-3DES, wrong PW)
+depends_on:POLARSSL_DES_C:POLARSSL_SHA1_C:POLARSSL_PEM_C:POLARSSL_FS_IO:POLARSSL_PKCS12_C
+x509parse_keyfile:"data_files/pkcs8_pbe_sha1_3des.key":"PolarSSLTes":POLARSSL_ERR_X509_PASSWORD_MISMATCH
+
+X509 Parse Key #10.2 (PKCS#8 encrypted SHA1-3DES, no PW)
+depends_on:POLARSSL_DES_C:POLARSSL_SHA1_C:POLARSSL_PEM_C:POLARSSL_FS_IO:POLARSSL_PKCS12_C
+x509parse_keyfile:"data_files/pkcs8_pbe_sha1_3des.key":"":POLARSSL_ERR_X509_PASSWORD_REQUIRED
+
+X509 Parse Key #11 (PKCS#8 encrypted SHA1-3DES DER)
+depends_on:POLARSSL_DES_C:POLARSSL_SHA1_C:POLARSSL_FS_IO:POLARSSL_PKCS12_C
+x509parse_keyfile:"data_files/pkcs8_pbe_sha1_3des.der":"PolarSSLTest":0
+
+X509 Parse Key #12 (PKCS#8 encrypted SHA1-2DES)
+depends_on:POLARSSL_DES_C:POLARSSL_SHA1_C:POLARSSL_PEM_C:POLARSSL_FS_IO:POLARSSL_PKCS12_C
+x509parse_keyfile:"data_files/pkcs8_pbe_sha1_2des.key":"PolarSSLTest":0
+
+X509 Parse Key #12.1 (PKCS#8 encrypted SHA1-2DES, wrong PW)
+depends_on:POLARSSL_DES_C:POLARSSL_SHA1_C:POLARSSL_PEM_C:POLARSSL_FS_IO:POLARSSL_PKCS12_C
+x509parse_keyfile:"data_files/pkcs8_pbe_sha1_2des.key":"PolarSLTest":POLARSSL_ERR_X509_PASSWORD_MISMATCH
+
+X509 Parse Key #12.2 (PKCS#8 encrypted SHA1-2DES, no PW)
+depends_on:POLARSSL_DES_C:POLARSSL_SHA1_C:POLARSSL_PEM_C:POLARSSL_FS_IO:POLARSSL_PKCS12_C
+x509parse_keyfile:"data_files/pkcs8_pbe_sha1_2des.key":"":POLARSSL_ERR_X509_PASSWORD_REQUIRED
+
+X509 Parse Key #13 (PKCS#8 encrypted SHA1-RC4-128)
+depends_on:POLARSSL_ARC4_C:POLARSSL_SHA1_C:POLARSSL_PEM_C:POLARSSL_FS_IO:POLARSSL_PKCS12_C
+x509parse_keyfile:"data_files/pkcs8_pbe_sha1_rc4_128.key":"PolarSSLTest":0
+
+X509 Parse Key #13.1 (PKCS#8 encrypted SHA1-RC4-128, wrong PW)
+depends_on:POLARSSL_ARC4_C:POLARSSL_SHA1_C:POLARSSL_PEM_C:POLARSSL_FS_IO:POLARSSL_PKCS12_C
+x509parse_keyfile:"data_files/pkcs8_pbe_sha1_rc4_128.key":"PolarSSLTe":POLARSSL_ERR_X509_PASSWORD_MISMATCH
+
+X509 Parse Key #13.2 (PKCS#8 encrypted SHA1-RC4-128, no PW)
+depends_on:POLARSSL_ARC4_C:POLARSSL_SHA1_C:POLARSSL_PEM_C:POLARSSL_FS_IO:POLARSSL_PKCS12_C
+x509parse_keyfile:"data_files/pkcs8_pbe_sha1_rc4_128.key":"":POLARSSL_ERR_X509_PASSWORD_REQUIRED
+
+X509 Parse Key #14 (PKCS#8 encrypted v2 PBDFK2 3DES)
+depends_on:POLARSSL_DES_C:POLARSSL_SHA1_C:POLARSSL_PEM_C:POLARSSL_FS_IO:POLARSSL_PKCS5_C
+x509parse_keyfile:"data_files/pkcs8_pbes2_pbkdf2_3des.key":"PolarSSLTest":0
+
+X509 Parse Key #15 (PKCS#8 encrypted v2 PBDFK2 3DES, wrong PW)
+depends_on:POLARSSL_DES_C:POLARSSL_SHA1_C:POLARSSL_PEM_C:POLARSSL_FS_IO:POLARSSL_PKCS5_C
+x509parse_keyfile:"data_files/pkcs8_pbes2_pbkdf2_3des.key":"PolarSSLTes":POLARSSL_ERR_X509_PASSWORD_MISMATCH
+
+X509 Parse Key #16 (PKCS#8 encrypted v2 PBDFK2 3DES, no PW)
+depends_on:POLARSSL_DES_C:POLARSSL_SHA1_C:POLARSSL_PEM_C:POLARSSL_FS_IO:POLARSSL_PKCS5_C
+x509parse_keyfile:"data_files/pkcs8_pbes2_pbkdf2_3des.key":"":POLARSSL_ERR_X509_PASSWORD_REQUIRED
+
+X509 Parse Key #17 (PKCS#8 encrypted v2 PBDFK2 3DES DER)
+depends_on:POLARSSL_DES_C:POLARSSL_SHA1_C:POLARSSL_FS_IO:POLARSSL_PKCS5_C
+x509parse_keyfile:"data_files/pkcs8_pbes2_pbkdf2_3des.der":"PolarSSLTest":0
+
+X509 Parse Key #18 (PKCS#8 encrypted v2 PBDFK2 3DES DER, wrong PW)
+depends_on:POLARSSL_DES_C:POLARSSL_SHA1_C:POLARSSL_FS_IO:POLARSSL_PKCS5_C
+x509parse_keyfile:"data_files/pkcs8_pbes2_pbkdf2_3des.der":"PolarSSLTes":POLARSSL_ERR_X509_PASSWORD_MISMATCH
+
+X509 Parse Key #19 (PKCS#8 encrypted v2 PBDFK2 3DES DER, no PW)
+depends_on:POLARSSL_DES_C:POLARSSL_SHA1_C:POLARSSL_FS_IO:POLARSSL_PKCS5_C
+x509parse_keyfile:"data_files/pkcs8_pbes2_pbkdf2_3des.der":"":POLARSSL_ERR_X509_KEY_INVALID_FORMAT
+
+X509 Parse Key #20 (PKCS#8 encrypted v2 PBDFK2 DES)
+depends_on:POLARSSL_DES_C:POLARSSL_SHA1_C:POLARSSL_PEM_C:POLARSSL_FS_IO:POLARSSL_PKCS5_C
+x509parse_keyfile:"data_files/pkcs8_pbes2_pbkdf2_des.key":"PolarSSLTest":0
 
 X509 Parse Public Key #1 (PKCS#8 wrapped)
 depends_on:POLARSSL_MD5_C:POLARSSL_PEM_C:POLARSSL_FS_IO
@@ -236,7 +304,7 @@ x509_verify:"data_files/server2.crt":"data_files/server1.crt":"data_files/crl_ex
 
 X509 Certificate verification #21 (domain matching wildcard certificate)
 depends_on:POLARSSL_PEM_C:POLARSSL_FS_IO
-x509_verify:"data_files/cert_example_wildcard.crt":"data_files/test-ca.crt":"data_files/crl.pem":"mail.example.com":0:0:NULL
+x509_verify:"data_files/cert_example_wildcard.crt":"data_files/test-ca.crt":"data_files/crl.pem":"mail.ExAmPlE.com":0:0:NULL
 
 X509 Certificate verification #22 (domain not matching wildcard certificate)
 depends_on:POLARSSL_PEM_C:POLARSSL_FS_IO
@@ -584,22 +652,22 @@ X509 CRL ASN1 (TBSCertList, no entries)
 x509parse_crl:"30463031020100300d06092a864886f70d01010e0500300f310d300b0603550403130441424344170c303930313031303030303030300d06092a864886f70d01010e050003020001":"CRL version   \: 1\nissuer name   \: CN=ABCD\nthis update   \: 2009-01-01 00\:00\:00\nnext update   \: 0000-00-00 00\:00\:00\nRevoked certificates\:\nsigned using  \: RSA+SHA224\n":0
 
 X509 Key ASN1 (Incorrect first tag)
-x509parse_key:"":"":POLARSSL_ERR_X509_KEY_INVALID_FORMAT + POLARSSL_ERR_ASN1_OUT_OF_DATA
+x509parse_key:"":"":POLARSSL_ERR_X509_KEY_INVALID_FORMAT
 
 X509 Key ASN1 (RSAPrivateKey, incorrect version tag)
-x509parse_key:"300100":"":POLARSSL_ERR_X509_KEY_INVALID_FORMAT + POLARSSL_ERR_ASN1_UNEXPECTED_TAG
+x509parse_key:"300100":"":POLARSSL_ERR_X509_KEY_INVALID_FORMAT
 
 X509 Key ASN1 (RSAPrivateKey, version tag missing)
-x509parse_key:"3000":"":POLARSSL_ERR_X509_KEY_INVALID_FORMAT + POLARSSL_ERR_ASN1_OUT_OF_DATA
+x509parse_key:"3000":"":POLARSSL_ERR_X509_KEY_INVALID_FORMAT
 
 X509 Key ASN1 (RSAPrivateKey, invalid version)
-x509parse_key:"3003020101":"":POLARSSL_ERR_X509_KEY_INVALID_VERSION
+x509parse_key:"3003020101":"":POLARSSL_ERR_X509_KEY_INVALID_FORMAT
 
 X509 Key ASN1 (RSAPrivateKey, correct version, incorrect tag)
-x509parse_key:"300402010000":"":POLARSSL_ERR_X509_KEY_INVALID_FORMAT + POLARSSL_ERR_ASN1_UNEXPECTED_TAG
+x509parse_key:"300402010000":"":POLARSSL_ERR_X509_KEY_INVALID_FORMAT
 
 X509 Key ASN1 (RSAPrivateKey, values present, length mismatch)
-x509parse_key:"301c02010002010102010102010102010102010102010102010102010100":"":POLARSSL_ERR_X509_KEY_INVALID_FORMAT + POLARSSL_ERR_ASN1_LENGTH_MISMATCH
+x509parse_key:"301c02010002010102010102010102010102010102010102010102010100":"":POLARSSL_ERR_X509_KEY_INVALID_FORMAT
 
 X509 Key ASN1 (RSAPrivateKey, values present, check_privkey fails)
-x509parse_key:"301b020100020101020101020101020101020101020101020101020101":"":POLARSSL_ERR_RSA_KEY_CHECK_FAILED
+x509parse_key:"301b020100020101020101020101020101020101020101020101020101":"":POLARSSL_ERR_X509_KEY_INVALID_FORMAT

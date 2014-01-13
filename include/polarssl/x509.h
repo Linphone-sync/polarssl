@@ -62,6 +62,8 @@
 #define POLARSSL_ERR_X509_INVALID_INPUT                    -0x2A00  /**< Input invalid. */
 #define POLARSSL_ERR_X509_MALLOC_FAILED                    -0x2A80  /**< Allocation of memory failed. */
 #define POLARSSL_ERR_X509_FILE_IO_ERROR                    -0x2B00  /**< Read/write of file failed. */
+#define POLARSSL_ERR_X509_PASSWORD_REQUIRED                -0x2B80  /**< Private key password can't be empty. */
+#define POLARSSL_ERR_X509_PASSWORD_MISMATCH                -0x2C00  /**< Given private key password does not allow for correct decryption. */
 /* \} name */
 
 
@@ -424,6 +426,18 @@ extern "C" {
  */
 
 /** \ingroup x509_module */
+/**
+ * \brief          Parse a single DER formatted certificate and add it
+ *                 to the chained list.
+ *
+ * \param chain    points to the start of the chain
+ * \param buf      buffer holding the certificate DER data
+ * \param buflen   size of the buffer
+ *
+ * \return         0 if successful, or a specific X509 or PEM error code
+ */
+int x509parse_crt_der( x509_cert *chain, const unsigned char *buf, size_t buflen );
+
 /**
  * \brief          Parse one or more certificates and add them
  *                 to the chained list. Parses permissively. If some

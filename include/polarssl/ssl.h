@@ -3,7 +3,7 @@
  *
  * \brief SSL/TLS functions.
  *
- *  Copyright (C) 2006-2012, Brainspark B.V.
+ *  Copyright (C) 2006-2013, Brainspark B.V.
  *
  *  This file is part of PolarSSL (http://www.polarssl.org)
  *  Lead Maintainer: Paul Bakker <polarssl_maintainer at polarssl.org>
@@ -125,7 +125,16 @@
 #define SSL_LEGACY_ALLOW_RENEGOTIATION  1
 #define SSL_LEGACY_BREAK_HANDSHAKE      2
 
-#define SSL_MAX_CONTENT_LEN         16384
+/*
+ * Size of the input / output buffer.
+ * Note: the RFC defines the default size of SSL / TLS messages. If you
+ * change the value here, other clients / servers may not be able to
+ * communicate with you anymore. Only change this value if you control
+ * both sides of the connection and have it reduced at both sides!
+ */
+#if !defined(POLARSSL_CONFIG_OPTIONS)
+#define SSL_MAX_CONTENT_LEN         16384   /**< Size of the input / output buffer */
+#endif /* !POLARSSL_CONFIG_OPTIONS */
 
 /*
  * Allow an extra 512 bytes for the record header
@@ -263,7 +272,9 @@
  * Generic function pointers for allowing external RSA private key
  * implementations.
  */
-typedef int (*rsa_decrypt_func)( void *ctx, int mode, size_t *olen,
+typedef int (*rsa_decrypt_func)( void *ctx,
+                        int (*f_rng)(void *, unsigned char *, size_t),
+                        void *p_rng, int mode, size_t *olen,
                         const unsigned char *input, unsigned char *output,
                         size_t output_max_len ); 
 typedef int (*rsa_sign_func)( void *ctx,
@@ -1125,6 +1136,7 @@ int ssl_parse_finished( ssl_context *ssl );
 int ssl_write_finished( ssl_context *ssl );
 
 void ssl_optimize_checksum( ssl_context *ssl, int ciphersuite );
+int ssl_get_ciphersuite_min_version( const int ciphersuite_id );
 
 #ifdef __cplusplus
 }

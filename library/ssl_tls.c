@@ -65,12 +65,14 @@ int (*ssl_hw_record_read)(ssl_context *ssl) = NULL;
 int (*ssl_hw_record_finish)(ssl_context *ssl) = NULL;
 #endif
 
-static int ssl_rsa_decrypt( void *ctx, int mode, size_t *olen,
+static int ssl_rsa_decrypt( void *ctx,
+                        int (*f_rng)(void *, unsigned char *, size_t),
+                        void *p_rng, int mode, size_t *olen,
                         const unsigned char *input, unsigned char *output,
                         size_t output_max_len )
 {
-    return rsa_pkcs1_decrypt( (rsa_context *) ctx, mode, olen, input, output,
-                              output_max_len );
+    return rsa_pkcs1_decrypt( (rsa_context *) ctx, f_rng, p_rng, mode, olen,
+                              input, output, output_max_len );
 }
 
 static int ssl_rsa_sign( void *ctx,
@@ -2345,6 +2347,13 @@ int ssl_parse_certificate( ssl_context *ssl )
         return( POLARSSL_ERR_SSL_BAD_HS_CERTIFICATE );
     }
 
+    /* In case we tried to reuse a session but it failed */
+    if( ssl->session_negotiate->peer_cert != NULL )
+    {
+        x509_free( ssl->session_negotiate->peer_cert );
+        free( ssl->session_negotiate->peer_cert );
+    }
+
     if( ( ssl->session_negotiate->peer_cert = (x509_cert *) malloc(
                     sizeof( x509_cert ) ) ) == NULL )
     {
@@ -2375,8 +2384,8 @@ int ssl_parse_certificate( ssl_context *ssl )
             return( POLARSSL_ERR_SSL_BAD_HS_CERTIFICATE );
         }
 
-        ret = x509parse_crt( ssl->session_negotiate->peer_cert, ssl->in_msg + i,
-                             n );
+        ret = x509parse_crt_der( ssl->session_negotiate->peer_cert,
+                                 ssl->in_msg + i, n );
         if( ret != 0 )
         {
             SSL_DEBUG_RET( 1, " x509parse_crt", ret );
@@ -2521,7 +2530,7 @@ static void ssl_update_checksum_sha384( ssl_context *ssl, unsigned char *buf,
 static void ssl_calc_finished_ssl(
                 ssl_context *ssl, unsigned char *buf, int from )
 {
-    char *sender;
+    const char *sender;
     md5_context  md5;
     sha1_context sha1;
 
@@ -2547,23 +2556,27 @@ static void ssl_calc_finished_ssl(
      *         SHA1( handshake + sender + master + pad1 ) )
      */
 
+#if !defined(POLARSSL_MD5_ALT)
     SSL_DEBUG_BUF( 4, "finished  md5 state", (unsigned char *)
                     md5.state, sizeof(  md5.state ) );
+#endif
 
+#if !defined(POLARSSL_SHA1_ALT)
     SSL_DEBUG_BUF( 4, "finished sha1 state", (unsigned char *)
                    sha1.state, sizeof( sha1.state ) );
+#endif
 
-    sender = ( from == SSL_IS_CLIENT ) ? (char *) "CLNT"
-                                       : (char *) "SRVR";
+    sender = ( from == SSL_IS_CLIENT ) ? "CLNT"
+                                       : "SRVR";
 
     memset( padbuf, 0x36, 48 );
 
-    md5_update( &md5, (unsigned char *) sender, 4 );
+    md5_update( &md5, (const unsigned char *) sender, 4 );
     md5_update( &md5, session->master, 48 );
     md5_update( &md5, padbuf, 48 );
     md5_finish( &md5, md5sum );
 
-    sha1_update( &sha1, (unsigned char *) sender, 4 );
+    sha1_update( &sha1, (const unsigned char *) sender, 4 );
     sha1_update( &sha1, session->master, 48 );
     sha1_update( &sha1, padbuf, 40 );
     sha1_finish( &sha1, sha1sum );
@@ -2598,7 +2611,7 @@ static void ssl_calc_finished_tls(
                 ssl_context *ssl, unsigned char *buf, int from )
 {
     int len = 12;
-    char *sender;
+    const char *sender;
     md5_context  md5;
     sha1_context sha1;
     unsigned char padbuf[36];
@@ -2618,20 +2631,24 @@ static void ssl_calc_finished_tls(
      *               MD5( handshake ) + SHA1( handshake ) )[0..11]
      */
 
+#if !defined(POLARSSL_MD5_ALT)
     SSL_DEBUG_BUF( 4, "finished  md5 state", (unsigned char *)
                     md5.state, sizeof(  md5.state ) );
+#endif
 
+#if !defined(POLARSSL_SHA1_ALT)
     SSL_DEBUG_BUF( 4, "finished sha1 state", (unsigned char *)
                    sha1.state, sizeof( sha1.state ) );
+#endif
 
     sender = ( from == SSL_IS_CLIENT )
-             ? (char *) "client finished"
-             : (char *) "server finished";
+             ? "client finished"
+             : "server finished";
 
     md5_finish(  &md5, padbuf );
     sha1_finish( &sha1, padbuf + 16 );
 
-    ssl->handshake->tls_prf( session->master, 48, sender,
+    ssl->handshake->tls_prf( session->master, 48, (char *) sender,
                              padbuf, 36, buf, len );
 
     SSL_DEBUG_BUF( 3, "calc finished result", buf, len );
@@ -2648,7 +2665,7 @@ static void ssl_calc_finished_tls_sha256(
                 ssl_context *ssl, unsigned char *buf, int from )
 {
     int len = 12;
-    char *sender;
+    const char *sender;
     sha2_context sha2;
     unsigned char padbuf[32];
 
@@ -2666,16 +2683,18 @@ static void ssl_calc_finished_tls_sha256(
      *               Hash( handshake ) )[0.11]
      */
 
+#if !defined(POLARSSL_SHA2_ALT)
     SSL_DEBUG_BUF( 4, "finished sha2 state", (unsigned char *)
                    sha2.state, sizeof( sha2.state ) );
+#endif
 
     sender = ( from == SSL_IS_CLIENT )
-             ? (char *) "client finished"
-             : (char *) "server finished";
+             ? "client finished"
+             : "server finished";
 
     sha2_finish( &sha2, padbuf );
 
-    ssl->handshake->tls_prf( session->master, 48, sender,
+    ssl->handshake->tls_prf( session->master, 48, (char *) sender,
                              padbuf, 32, buf, len );
 
     SSL_DEBUG_BUF( 3, "calc finished result", buf, len );
@@ -2692,7 +2711,7 @@ static void ssl_calc_finished_tls_sha384(
                 ssl_context *ssl, unsigned char *buf, int from )
 {
     int len = 12;
-    char *sender;
+    const char *sender;
     sha4_context sha4;
     unsigned char padbuf[48];
 
@@ -2710,16 +2729,18 @@ static void ssl_calc_finished_tls_sha384(
      *               Hash( handshake ) )[0.11]
      */
 
+#if !defined(POLARSSL_SHA4_ALT)
     SSL_DEBUG_BUF( 4, "finished sha4 state", (unsigned char *)
                    sha4.state, sizeof( sha4.state ) );
+#endif
 
     sender = ( from == SSL_IS_CLIENT )
-             ? (char *) "client finished"
-             : (char *) "server finished";
+             ? "client finished"
+             : "server finished";
 
     sha4_finish( &sha4, padbuf );
 
-    ssl->handshake->tls_prf( session->master, 48, sender,
+    ssl->handshake->tls_prf( session->master, 48, (char *) sender,
                              padbuf, 48, buf, len );
 
     SSL_DEBUG_BUF( 3, "calc finished result", buf, len );
@@ -3227,14 +3248,18 @@ int ssl_set_hostname( ssl_context *ssl, const char *hostname )
         return( POLARSSL_ERR_SSL_BAD_INPUT_DATA );
 
     ssl->hostname_len = strlen( hostname );
+
+    if( ssl->hostname_len + 1 == 0 )
+        return( POLARSSL_ERR_SSL_BAD_INPUT_DATA );
+
     ssl->hostname = (unsigned char *) malloc( ssl->hostname_len + 1 );
 
     if( ssl->hostname == NULL )
         return( POLARSSL_ERR_SSL_MALLOC_FAILED );
 
-    memcpy( ssl->hostname, (unsigned char *) hostname,
+    memcpy( ssl->hostname, (const unsigned char *) hostname,
             ssl->hostname_len );
-    
+
     ssl->hostname[ssl->hostname_len] = '\0';
 
     return( 0 );
@@ -3494,6 +3519,50 @@ int ssl_get_ciphersuite_id( const char *ciphersuite_name )
 #endif /* defined(POLARSSL_ENABLE_WEAK_CIPHERSUITES) */
 
     return( 0 );
+}
+
+int ssl_get_ciphersuite_min_version( const int ciphersuite_id )
+{
+    switch( ciphersuite_id )
+    {
+        case TLS_RSA_WITH_RC4_128_MD5:
+        case TLS_RSA_WITH_RC4_128_SHA:
+        case TLS_RSA_WITH_3DES_EDE_CBC_SHA:
+        case TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA:
+        case TLS_RSA_WITH_AES_128_CBC_SHA:
+        case TLS_DHE_RSA_WITH_AES_128_CBC_SHA:
+        case TLS_RSA_WITH_AES_256_CBC_SHA:
+        case TLS_DHE_RSA_WITH_AES_256_CBC_SHA:
+        case TLS_RSA_WITH_CAMELLIA_128_CBC_SHA:
+        case TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA:
+        case TLS_RSA_WITH_CAMELLIA_256_CBC_SHA:
+        case TLS_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA:
+        case TLS_RSA_WITH_NULL_MD5:
+        case TLS_RSA_WITH_NULL_SHA:
+        case TLS_RSA_WITH_DES_CBC_SHA:
+        case TLS_DHE_RSA_WITH_DES_CBC_SHA:
+            return SSL_MINOR_VERSION_0;
+
+        case TLS_RSA_WITH_AES_128_CBC_SHA256:
+        case TLS_RSA_WITH_AES_256_CBC_SHA256:
+        case TLS_DHE_RSA_WITH_AES_128_CBC_SHA256:
+        case TLS_DHE_RSA_WITH_AES_256_CBC_SHA256:
+        case TLS_RSA_WITH_AES_128_GCM_SHA256:
+        case TLS_RSA_WITH_AES_256_GCM_SHA384:
+        case TLS_DHE_RSA_WITH_AES_128_GCM_SHA256:
+        case TLS_DHE_RSA_WITH_AES_256_GCM_SHA384:
+        case TLS_RSA_WITH_CAMELLIA_128_CBC_SHA256:
+        case TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA256:
+        case TLS_RSA_WITH_CAMELLIA_256_CBC_SHA256:
+        case TLS_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA256:
+        case TLS_RSA_WITH_NULL_SHA256:
+            return SSL_MINOR_VERSION_3;
+
+        default:
+            break;
+    }
+
+    return SSL_MINOR_VERSION_0;
 }
 
 const char *ssl_get_ciphersuite( const ssl_context *ssl )

@@ -1,7 +1,7 @@
 /*
  *  RFC 1321 compliant MD5 implementation
  *
- *  Copyright (C) 2006-2010, Brainspark B.V.
+ *  Copyright (C) 2006-2013, Brainspark B.V.
  *
  *  This file is part of PolarSSL (http://www.polarssl.org)
  *  Lead Maintainer: Paul Bakker <polarssl_maintainer at polarssl.org>
@@ -37,6 +37,8 @@
 #if defined(POLARSSL_FS_IO) || defined(POLARSSL_SELF_TEST)
 #include <stdio.h>
 #endif
+
+#if !defined(POLARSSL_MD5_ALT)
 
 /*
  * 32-bit integer manipulation macros (little endian)
@@ -220,8 +222,7 @@ void md5_update( md5_context *ctx, const unsigned char *input, size_t ilen )
 
     if( left && ilen >= fill )
     {
-        memcpy( (void *) (ctx->buffer + left),
-                (void *) input, fill );
+        memcpy( (void *) (ctx->buffer + left), input, fill );
         md5_process( ctx, ctx->buffer );
         input += fill;
         ilen  -= fill;
@@ -237,8 +238,7 @@ void md5_update( md5_context *ctx, const unsigned char *input, size_t ilen )
 
     if( ilen > 0 )
     {
-        memcpy( (void *) (ctx->buffer + left),
-                (void *) input, ilen );
+        memcpy( (void *) (ctx->buffer + left), input, ilen );
     }
 }
 
@@ -269,7 +269,7 @@ void md5_finish( md5_context *ctx, unsigned char output[16] )
     last = ctx->total[0] & 0x3F;
     padn = ( last < 56 ) ? ( 56 - last ) : ( 120 - last );
 
-    md5_update( ctx, (unsigned char *) md5_padding, padn );
+    md5_update( ctx, md5_padding, padn );
     md5_update( ctx, msglen, 8 );
 
     PUT_UINT32_LE( ctx->state[0], output,  0 );
@@ -277,6 +277,8 @@ void md5_finish( md5_context *ctx, unsigned char output[16] )
     PUT_UINT32_LE( ctx->state[2], output,  8 );
     PUT_UINT32_LE( ctx->state[3], output, 12 );
 }
+
+#endif /* !POLARSSL_MD5_ALT */
 
 /*
  * output = MD5( input buffer )

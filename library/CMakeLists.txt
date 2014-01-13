@@ -28,7 +28,9 @@ set(src
      padlock.c
      pbkdf2.c
      pem.c
+     pkcs5.c
      pkcs11.c
+     pkcs12.c
      rsa.c
      sha1.c
      sha2.c
@@ -54,7 +56,7 @@ set(libs ws2_32)
 endif(WIN32)
 
 add_library(libpolarssl SHARED ${src})
-set_target_properties(libpolarssl PROPERTIES VERSION 1.2.7 SOVERSION 2)
+set_target_properties(libpolarssl PROPERTIES VERSION 1.2.10 SOVERSION 3)
 
 target_link_libraries(libpolarssl ${libs})
 
