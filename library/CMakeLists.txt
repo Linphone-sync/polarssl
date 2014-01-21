@@ -89,25 +89,23 @@ add_library(polarssl STATIC ${src})
 else(NOT USE_SHARED_POLARSSL_LIBRARY)
 
 add_library(polarssl SHARED ${src})
-set_target_properties(libpolarssl PROPERTIES VERSION 1.3.4 SOVERSION 5)
+set_target_properties(polarssl PROPERTIES VERSION 1.3.4 SOVERSION 5)
 
 endif(NOT USE_SHARED_POLARSSL_LIBRARY)
 
-target_link_libraries(libpolarssl ${libs})
+target_link_libraries(polarssl ${libs})
 
 if(ZLIB_FOUND)
 target_link_libraries(libpolarssl ${ZLIB_LIBRARIES})
 endif(ZLIB_FOUND)
 
-install(TARGETS libpolarssl
-	COMPONENT COMP_libpolarssl
+install(TARGETS polarssl
 	DESTINATION ${LIB_INSTALL_DIR}
 	PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
 )
 if(WIN32)
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/Debug/libpolarssl.pdb
-	COMPONENT COMP_libpolarssl
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/Debug/polarssl.pdb
 	DESTINATION ${LIB_INSTALL_DIR}
 	PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
 )

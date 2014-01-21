@@ -1,4 +1,4 @@
-LIBRARY libpolarssl
+LIBRARY polarssl
 EXPORTS
 	base64_encode
 	error_strerror
