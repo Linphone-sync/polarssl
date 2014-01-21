@@ -55,20 +55,18 @@ set(src
 set(libs ws2_32)
 endif(WIN32)
 
-add_library(libpolarssl SHARED ${src})
-set_target_properties(libpolarssl PROPERTIES VERSION 1.2.10 SOVERSION 3)
+add_library(polarssl SHARED ${src})
+set_target_properties(polarssl PROPERTIES VERSION 1.2.10 SOVERSION 3)
 
-target_link_libraries(libpolarssl ${libs})
+target_link_libraries(polarssl ${libs})
 
-install(TARGETS libpolarssl
-	COMPONENT COMP_libpolarssl
+install(TARGETS polarssl
 	DESTINATION ${LIB_INSTALL_DIR}
 	PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
 )
 if(WIN32)
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/Debug/libpolarssl.pdb
-	COMPONENT COMP_libpolarssl
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/Debug/polarssl.pdb
 	DESTINATION ${LIB_INSTALL_DIR}
 	PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
 )

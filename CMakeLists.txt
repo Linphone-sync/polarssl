@@ -54,7 +54,3 @@ if(POLARSSL_APIDOC)
 		COMMAND doxygen doxygen/polarssl.doxyfile
 		WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 endif()
-
-if(INSTALL_COMPONENT_IN_POSTBUILD)
-	add_install_target(INSTALL_libpolarssl COMP_libpolarssl libpolarssl)
-endif()
