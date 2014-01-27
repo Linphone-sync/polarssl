@@ -87,6 +87,8 @@ static int wsa_init_done = 0;
 #include <sys/isa_defs.h>
 #elif defined(_AIX) || defined(HAVE_ARPA_NAMESER_COMPAT_H)
 #include <arpa/nameser_compat.h>
+#elif defined(__QNX__)
+#include <net/netbyte.h>
 #else
 #include <endian.h>
 #endif
