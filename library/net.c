@@ -66,6 +66,8 @@ static int wsa_init_done = 0;
 #include <machine/endian.h>
 #elif defined(sun)
 #include <sys/isa_defs.h>
+#elif defined(__QNX__)
+#include <net/netbyte.h>
 #else
 #include <endian.h>
 #endif
