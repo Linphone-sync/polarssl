@@ -21,6 +21,8 @@ option(ENABLE_ZLIB_SUPPORT "Build PolarSSL with zlib library." OFF)
 
 option(POLARSSL_COMPILE_PROGRAMS "Build PolarSSL programs." OFF)
 
+option(POLARSSL_COMPILE_TESTS "Build PolarSSL tests." OFF)
+
 option(POLARSSL_APIDOC "Generate API documentation of PolarSSL." OFF)
 
 if(LIB_INSTALL_DIR)
@@ -42,7 +44,9 @@ add_subdirectory(library)
 add_subdirectory(include)
 
 if(CMAKE_COMPILER_IS_GNUCC)
+if(POLARSSL_COMPILE_TESTS)
   add_subdirectory(tests)
+endif(POLARSSL_COMPILE_TESTS)
 endif(CMAKE_COMPILER_IS_GNUCC)
 
 if(POLARSSL_COMPILE_PROGRAMS)
