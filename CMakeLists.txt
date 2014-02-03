@@ -19,11 +19,11 @@ option(USE_PKCS11_HELPER_LIBRARY "Build PolarSSL with the pkcs11-helper library.
 
 option(ENABLE_ZLIB_SUPPORT "Build PolarSSL with zlib library." OFF)
 
-option(POLARSSL_COMPILE_PROGRAMS "Build PolarSSL programs." OFF)
+option(COMPILE_PROGRAMS "Build PolarSSL programs." OFF)
 
-option(POLARSSL_COMPILE_TESTS "Build PolarSSL tests." OFF)
+option(COMPILE_TESTS "Build PolarSSL tests." OFF)
 
-option(POLARSSL_APIDOC "Generate API documentation of PolarSSL." OFF)
+option(GENERATE_APIDOC "Generate API documentation of PolarSSL." OFF)
 
 if(LIB_INSTALL_DIR)
 else()
@@ -44,17 +44,17 @@ add_subdirectory(library)
 add_subdirectory(include)
 
 if(CMAKE_COMPILER_IS_GNUCC)
-if(POLARSSL_COMPILE_TESTS)
+if(COMPILE_TESTS)
   add_subdirectory(tests)
-endif(POLARSSL_COMPILE_TESTS)
+endif(COMPILE_TESTS)
 endif(CMAKE_COMPILER_IS_GNUCC)
 
-if(POLARSSL_COMPILE_PROGRAMS)
+if(COMPILE_PROGRAMS)
 add_subdirectory(programs)
 endif()
 
-if(POLARSSL_APIDOC)
+if(GENERATE_APIDOC)
 	ADD_CUSTOM_TARGET(apidoc
 		COMMAND doxygen doxygen/polarssl.doxyfile
 		WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-endif()
+endif(GENERATE_APIDOC)
