@@ -109,7 +109,7 @@ extern "C" {
  * \param output   SHA-384/512 checksum result
  * \param is384    0 = use SHA512, 1 = use SHA384
  */
-void sha512( const unsigned char *input, size_t ilen,
+void polarssl_sha512( const unsigned char *input, size_t ilen,
              unsigned char output[64], int is384 );
 
 /**

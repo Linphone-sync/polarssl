@@ -39,7 +39,7 @@ void sha224(char *hex_src_string, char *hex_hash_string )
 
     src_len = unhexify( src_str, hex_src_string );
 
-    sha256( src_str, src_len, output, 1 );
+    polarssl_sha256( src_str, src_len, output, 1 );
     hexify( hash_str, output, 28 );
 
     TEST_ASSERT( strcmp( (char *) hash_str, hex_hash_string ) == 0 );
@@ -60,7 +60,7 @@ void sha256(char *hex_src_string, char *hex_hash_string )
 
     src_len = unhexify( src_str, hex_src_string );
 
-    sha256( src_str, src_len, output, 0 );
+    polarssl_sha256( src_str, src_len, output, 0 );
     hexify( hash_str, output, 32 );
 
     TEST_ASSERT( strcmp( (char *) hash_str, hex_hash_string ) == 0 );
@@ -81,7 +81,7 @@ void sha384(char *hex_src_string, char *hex_hash_string )
 
     src_len = unhexify( src_str, hex_src_string );
 
-    sha512( src_str, src_len, output, 1 );
+    polarssl_sha512( src_str, src_len, output, 1 );
     hexify( hash_str, output, 48 );
 
     TEST_ASSERT( strcmp( (char *) hash_str, hex_hash_string ) == 0 );
@@ -102,7 +102,7 @@ void sha512(char *hex_src_string, char *hex_hash_string )
 
     src_len = unhexify( src_str, hex_src_string );
 
-    sha512( src_str, src_len, output, 0);
+    polarssl_sha512( src_str, src_len, output, 0);
     hexify( hash_str, output, 64 );
 
     TEST_ASSERT( strcmp( (char *) hash_str, hex_hash_string ) == 0 );

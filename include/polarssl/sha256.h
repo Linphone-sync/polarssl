@@ -111,7 +111,7 @@ extern "C" {
  * \param output   SHA-224/256 checksum result
  * \param is224    0 = use SHA256, 1 = use SHA224
  */
-void sha256( const unsigned char *input, size_t ilen,
+void polarssl_sha256( const unsigned char *input, size_t ilen,
            unsigned char output[32], int is224 );
 
 /**
