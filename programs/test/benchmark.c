@@ -238,12 +238,12 @@ int main( int argc, char *argv[] )
 
 #if defined(POLARSSL_SHA256_C)
     if( todo.sha256 )
-        TIME_AND_TSC( "SHA-256", polarssl_sha256( buf, BUFSIZE, tmp, 0 ) );
+        TIME_AND_TSC( "SHA-256", sha256( buf, BUFSIZE, tmp, 0 ) );
 #endif
 
 #if defined(POLARSSL_SHA512_C)
     if( todo.sha512 )
-        TIME_AND_TSC( "SHA-512", polarssl_sha512( buf, BUFSIZE, tmp, 0 ) );
+        TIME_AND_TSC( "SHA-512", sha512( buf, BUFSIZE, tmp, 0 ) );
 #endif
 
 #if defined(POLARSSL_ARC4_C)

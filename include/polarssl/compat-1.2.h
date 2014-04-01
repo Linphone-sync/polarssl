@@ -73,7 +73,7 @@ static inline int sha2_file( const char *path, unsigned char output[32], int is2
 }
 static inline void sha2( const unsigned char *input, size_t ilen,
                   unsigned char output[32], int is224 ) {
-    polarssl_sha256( input, ilen, output, is224 );
+    sha256( input, ilen, output, is224 );
 }
 static inline void sha2_hmac_starts( sha256_context *ctx, const unsigned char *key,
                               size_t keylen, int is224 ) {
@@ -122,7 +122,7 @@ static inline int sha4_file( const char *path, unsigned char output[64], int is3
 }
 static inline void sha4( const unsigned char *input, size_t ilen,
                   unsigned char output[32], int is384 ) {
-    polarssl_sha512( input, ilen, output, is384 );
+    sha512( input, ilen, output, is384 );
 }
 static inline void sha4_hmac_starts( sha512_context *ctx, const unsigned char *key,
                               size_t keylen, int is384 ) {

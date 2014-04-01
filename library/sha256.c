@@ -317,7 +317,7 @@ void sha256_finish( sha256_context *ctx, unsigned char output[32] )
 /*
  * output = SHA-256( input buffer )
  */
-void polarssl_sha256( const unsigned char *input, size_t ilen,
+void sha256( const unsigned char *input, size_t ilen,
              unsigned char output[32], int is224 )
 {
     sha256_context ctx;
@@ -374,7 +374,7 @@ void sha256_hmac_starts( sha256_context *ctx, const unsigned char *key,
 
     if( keylen > 64 )
     {
-        polarssl_sha256( key, keylen, sum, is224 );
+        sha256( key, keylen, sum, is224 );
         keylen = ( is224 ) ? 28 : 32;
         key = sum;
     }

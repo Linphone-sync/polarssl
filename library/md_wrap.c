@@ -515,7 +515,7 @@ static void sha224_finish_wrap( void *ctx, unsigned char *output )
 static void sha224_wrap( const unsigned char *input, size_t ilen,
                     unsigned char *output )
 {
-    polarssl_sha256( input, ilen, output, 1 );
+    sha256( input, ilen, output, 1 );
 }
 
 static int sha224_file_wrap( const char *path, unsigned char *output )
@@ -608,7 +608,7 @@ static void sha256_finish_wrap( void *ctx, unsigned char *output )
 static void sha256_wrap( const unsigned char *input, size_t ilen,
                     unsigned char *output )
 {
-    polarssl_sha256( input, ilen, output, 0 );
+    sha256( input, ilen, output, 0 );
 }
 
 static int sha256_file_wrap( const char *path, unsigned char *output )
@@ -705,7 +705,7 @@ static void sha384_finish_wrap( void *ctx, unsigned char *output )
 static void sha384_wrap( const unsigned char *input, size_t ilen,
                     unsigned char *output )
 {
-    polarssl_sha512( input, ilen, output, 1 );
+    sha512( input, ilen, output, 1 );
 }
 
 static int sha384_file_wrap( const char *path, unsigned char *output )
@@ -798,7 +798,7 @@ static void sha512_finish_wrap( void *ctx, unsigned char *output )
 static void sha512_wrap( const unsigned char *input, size_t ilen,
                     unsigned char *output )
 {
-    polarssl_sha512( input, ilen, output, 0 );
+    sha512( input, ilen, output, 0 );
 }
 
 static int sha512_file_wrap( const char *path, unsigned char *output )

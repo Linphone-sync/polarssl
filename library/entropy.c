@@ -108,9 +108,9 @@ static int entropy_update( entropy_context *ctx, unsigned char source_id,
     if( use_len > ENTROPY_BLOCK_SIZE )
     {
 #if defined(POLARSSL_ENTROPY_SHA512_ACCUMULATOR)
-        polarssl_sha512( data, len, tmp, 0 );
+        sha512( data, len, tmp, 0 );
 #else
-        polarssl_sha256( data, len, tmp, 0 );
+        sha256( data, len, tmp, 0 );
 #endif
         p = tmp;
         use_len = ENTROPY_BLOCK_SIZE;
@@ -217,7 +217,7 @@ int entropy_func( void *data, unsigned char *output, size_t len )
     /*
      * Perform second SHA-512 on entropy
      */
-    polarssl_sha512( buf, ENTROPY_BLOCK_SIZE, buf, 0 );
+    sha512( buf, ENTROPY_BLOCK_SIZE, buf, 0 );
 
     /*
      * Reset accumulator and counters and recycle existing entropy
@@ -231,7 +231,7 @@ int entropy_func( void *data, unsigned char *output, size_t len )
     /*
      * Perform second SHA-256 on entropy
      */
-    polarssl_sha256( buf, ENTROPY_BLOCK_SIZE, buf, 0 );
+    sha256( buf, ENTROPY_BLOCK_SIZE, buf, 0 );
 
     /*
      * Reset accumulator and counters and recycle existing entropy

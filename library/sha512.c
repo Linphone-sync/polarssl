@@ -315,7 +315,7 @@ void sha512_finish( sha512_context *ctx, unsigned char output[64] )
 /*
  * output = SHA-512( input buffer )
  */
-void polarssl_sha512( const unsigned char *input, size_t ilen,
+void sha512( const unsigned char *input, size_t ilen,
              unsigned char output[64], int is384 )
 {
     sha512_context ctx;
@@ -372,7 +372,7 @@ void sha512_hmac_starts( sha512_context *ctx, const unsigned char *key,
 
     if( keylen > 128 )
     {
-        polarssl_sha512( key, keylen, sum, is384 );
+        sha512( key, keylen, sum, is384 );
         keylen = ( is384 ) ? 48 : 64;
         key = sum;
     }
