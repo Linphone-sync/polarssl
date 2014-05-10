@@ -1,8 +1,22 @@
 LIBRARY polarssl
 EXPORTS
+	aes_crypt_cfb128
+	aes_setkey_enc
 	base64_encode
+	ctr_drbg_init
+	ctr_drbg_random
+	dhm_calc_secret
+	dhm_free
+	dhm_make_public
+	dhm_read_public
+	entropy_func
+	entropy_init
 	error_strerror
+	mpi_read_string
 	rsa_free
+	sha1_hmac
+	sha2
+	sha2_hmac
 	ssl_close_notify
 	ssl_free
 	ssl_handshake
