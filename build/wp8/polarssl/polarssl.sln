@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Express 2012 for Windows Phone
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "polarssl", "polarssl\polarssl.vcxproj", "{E9F8C5D1-13A2-46B6-A9BC-878030D4BE09}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "polarssl", "polarssl.vcxproj", "{E9F8C5D1-13A2-46B6-A9BC-878030D4BE09}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
