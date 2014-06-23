@@ -235,7 +235,13 @@ unsigned long get_timer( struct hr_time *val, int reset )
 
 DWORD WINAPI TimerProc( LPVOID uElapse )
 {   
+#if WINAPI_FAMILY_APP
+	HANDLE sleepEvent = CreateEventEx(NULL, NULL, CREATE_EVENT_MANUAL_RESET, EVENT_ALL_ACCESS);
+	if (!sleepEvent) return FALSE;
+	WaitForSingleObjectEx(sleepEvent, (DWORD) uElapse, FALSE);
+#else
     Sleep( (DWORD) uElapse );
+#endif
     alarmed = 1; 
     return( TRUE );
 }
@@ -245,13 +251,19 @@ void set_alarm( int seconds )
     DWORD ThreadId;
 
     alarmed = 0; 
-    CloseHandle( CreateThread( NULL, 0, TimerProc,
+    CloseHandle( (HANDLE)_beginthreadex( NULL, 0, TimerProc,
         (LPVOID) ( seconds * 1000 ), 0, &ThreadId ) );
 }
 
 void m_sleep( int milliseconds )
 {
+#if WINAPI_FAMILY_APP
+	HANDLE sleepEvent = CreateEventEx(NULL, NULL, CREATE_EVENT_MANUAL_RESET, EVENT_ALL_ACCESS);
+	if (!sleepEvent) return;
+	WaitForSingleObjectEx(sleepEvent, milliseconds, FALSE);
+#else
     Sleep( milliseconds );
+#endif
 }
 
 #else
