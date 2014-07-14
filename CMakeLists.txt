@@ -53,6 +53,11 @@ if(COMPILE_PROGRAMS)
 add_subdirectory(programs)
 endif()
 
+install(FILES FindPolarSSL.cmake
+	DESTINATION share/cmake/Modules
+	PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ
+)
+
 if(GENERATE_APIDOC)
 	ADD_CUSTOM_TARGET(apidoc
 		COMMAND doxygen doxygen/polarssl.doxyfile
