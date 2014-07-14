@@ -83,6 +83,11 @@ ADD_CUSTOM_TARGET(apidoc
                   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 endif()
 
+install(FILES FindPolarSSL.cmake
+	DESTINATION share/cmake/Modules
+	PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ
+)
+
 if(ENABLE_TESTING)
   ADD_CUSTOM_TARGET(test-ref-config
     COMMAND tests/scripts/test-ref-configs.pl
