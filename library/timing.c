@@ -54,7 +54,7 @@ struct _hr_time
 
 #endif
 
-#ifdef __MINGW32__
+#if defined(__MINGW32__) || !defined(WINAPI_FAMILY_PARTITION)
 #define WINAPI_FAMILY_PARTITION(x) 1
 #endif
 
