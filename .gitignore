@@ -23,3 +23,5 @@ configure
 autom4te.cache
 .deps
 depcomp
+compile
+INSTALL
