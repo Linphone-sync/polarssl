@@ -15,8 +15,6 @@ EXPORTS
 	mpi_read_string
 	rsa_free
 	sha1_hmac
-	sha2
-	sha2_hmac
 	ssl_close_notify
 	ssl_free
 	ssl_handshake
