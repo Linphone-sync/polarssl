@@ -13,8 +13,16 @@ EXPORTS
 	entropy_init
 	error_strerror
 	mpi_read_string
+	pk_can_do
+	pk_free
+	pk_init
+	pk_parse_key
+	pk_parse_keyfile
+	rsa_copy
 	rsa_free
 	sha1_hmac
+	sha256
+	sha256_hmac
 	ssl_close_notify
 	ssl_free
 	ssl_handshake
@@ -27,6 +35,7 @@ EXPORTS
 	ssl_set_ca_chain
 	ssl_set_endpoint
 	ssl_set_own_cert
+	ssl_set_own_cert_rsa
 	ssl_set_rng
 	ssl_set_verify
 	ssl_write
@@ -39,10 +48,3 @@ EXPORTS
 	x509_crt_info
 	x509_crt_parse_file
 	x509_crt_parse_path
-	pk_parse_keyfile
-	pk_parse_key
-	rsa_copy
-	pk_init
-	pk_free
-	pk_can_do
-	ssl_set_own_cert_rsa
