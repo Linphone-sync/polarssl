@@ -222,6 +222,13 @@
 #error "POLARSSL_SSL_PROTO_TLS1_2 defined, but not all prerequisites"
 #endif
 
+#if defined(POLARSSL_SSL_PROTO_DTLS) && (       \
+    ( !defined(POLARSSL_SSL_PROTO_TLS1_1) &&      \
+      !defined(POLARSSL_SSL_PROTO_TLS1_2) ) ||    \
+    !defined(POLARSSL_TIMING_C) )
+#error "POLARSSL_SSL_PROTO_DTLS defined, but not all prerequisites"
+#endif
+
 #if defined(POLARSSL_SSL_CLI_C) && !defined(POLARSSL_SSL_TLS_C)
 #error "POLARSSL_SSL_CLI_C defined, but not all prerequisites"
 #endif
@@ -255,6 +262,25 @@
     defined(POLARSSL_SSL_PROTO_TLS1_2) && (!defined(POLARSSL_SSL_PROTO_TLS1) || \
     !defined(POLARSSL_SSL_PROTO_TLS1_1)))
 #error "Illegal protocol selection"
+#endif
+
+#if defined(POLARSSL_SSL_COOKIE_C) && !defined(POLARSSL_SSL_DTLS_HELLO_VERIFY)
+#error "POLARSSL_SSL_COOKIE_C  defined, but not all prerequisites"
+#endif
+
+#if defined(POLARSSL_SSL_DTLS_HELLO_VERIFY) &&                              \
+    ( !defined(POLARSSL_SSL_SRV_C) || !defined(POLARSSL_SSL_PROTO_DTLS) )
+#error "POLARSSL_SSL_DTLS_HELLO_VERIFY  defined, but not all prerequisites"
+#endif
+
+#if defined(POLARSSL_SSL_DTLS_ANTI_REPLAY) &&                              \
+    ( !defined(POLARSSL_SSL_TLS_C) || !defined(POLARSSL_SSL_PROTO_DTLS) )
+#error "POLARSSL_SSL_DTLS_ANTI_REPLAY  defined, but not all prerequisites"
+#endif
+
+#if defined(POLARSSL_SSL_DTLS_BADMAC_LIMIT) &&                              \
+    ( !defined(POLARSSL_SSL_TLS_C) || !defined(POLARSSL_SSL_PROTO_DTLS) )
+#error "POLARSSL_SSL_DTLS_BADMAC_LIMIT  defined, but not all prerequisites"
 #endif
 
 #if defined(POLARSSL_SSL_SESSION_TICKETS) && defined(POLARSSL_SSL_TLS_C) && \

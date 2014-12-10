@@ -33,6 +33,7 @@ APPS =	aes/aescrypt2	aes/crypt_and_hash	\
 	pkey/rsa_decrypt	pkey/rsa_encrypt	\
 	pkey/rsa_sign		pkey/rsa_verify		\
 	pkey/rsa_sign_pss	pkey/rsa_verify_pss \
+	ssl/dtls_client		ssl/dtls_server		\
 	ssl/ssl_client1		ssl/ssl_client2		\
 	ssl/ssl_server		ssl/ssl_server2		\
 	ssl/ssl_fork_server						\
@@ -41,6 +42,7 @@ APPS =	aes/aescrypt2	aes/crypt_and_hash	\
 	random/gen_random_ctr_drbg				\
 	test/ssl_cert_test	test/benchmark		\
 	test/selftest		test/ssl_test		\
+	test/udp_proxy							\
 	util/pem2der		util/strerror		\
 	x509/cert_app		x509/crl_app		\
 	x509/cert_req
@@ -173,6 +175,14 @@ random/gen_random_ctr_drbg: random/gen_random_ctr_drbg.c ../library/libpolarssl.
 	echo   "  CC    random/gen_random_ctr_drbg.c"
 	$(CC) $(CFLAGS) $(OFLAGS) random/gen_random_ctr_drbg.c $(LDFLAGS) -o $@
 
+ssl/dtls_client: ssl/dtls_client.c ../library/libpolarssl.a
+	echo   "  CC    ssl/dtls_client.c"
+	$(CC) $(CFLAGS) $(OFLAGS) ssl/dtls_client.c  $(LDFLAGS) -o $@
+
+ssl/dtls_server: ssl/dtls_server.c ../library/libpolarssl.a
+	echo   "  CC    ssl/dtls_server.c"
+	$(CC) $(CFLAGS) $(OFLAGS) ssl/dtls_server.c  $(LDFLAGS) -o $@
+
 ssl/ssl_client1: ssl/ssl_client1.c ../library/libpolarssl.a
 	echo   "  CC    ssl/ssl_client1.c"
 	$(CC) $(CFLAGS) $(OFLAGS) ssl/ssl_client1.c  $(LDFLAGS) -o $@
@@ -216,6 +226,10 @@ test/selftest: test/selftest.c ../library/libpolarssl.a
 test/ssl_test: test/ssl_test.c ../library/libpolarssl.a
 	echo   "  CC    test/ssl_test.c"
 	$(CC) $(CFLAGS) $(OFLAGS) test/ssl_test.c    $(LDFLAGS) -o $@
+
+test/udp_proxy: test/udp_proxy.c ../library/libpolarssl.a
+	echo   "  CC    test/udp_proxy.c"
+	$(CC) $(CFLAGS) $(OFLAGS) test/udp_proxy.c    $(LDFLAGS) -o $@
 
 test/o_p_test: test/o_p_test.c ../library/libpolarssl.a
 	echo   "  CC    test/o_p_test.c"

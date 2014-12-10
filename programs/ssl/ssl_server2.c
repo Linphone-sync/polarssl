@@ -81,6 +81,10 @@ int main( int argc, char *argv[] )
 #include "polarssl/ssl_cache.h"
 #endif
 
+#if defined(POLARSSL_SSL_COOKIE_C)
+#include "polarssl/ssl_cookie.h"
+#endif
+
 #if defined(POLARSSL_MEMORY_BUFFER_ALLOC_C)
 #include "polarssl/memory.h"
 #endif
@@ -89,6 +93,7 @@ int main( int argc, char *argv[] )
 #define DFL_SERVER_PORT         4433
 #define DFL_DEBUG_LEVEL         0
 #define DFL_NBIO                0
+#define DFL_READ_TIMEOUT        0
 #define DFL_CA_FILE             ""
 #define DFL_CA_PATH             ""
 #define DFL_CRT_FILE            ""
@@ -116,6 +121,12 @@ int main( int argc, char *argv[] )
 #define DFL_SNI                 NULL
 #define DFL_ALPN_STRING         NULL
 #define DFL_DHM_FILE            NULL
+#define DFL_TRANSPORT           SSL_TRANSPORT_STREAM
+#define DFL_COOKIES             1
+#define DFL_ANTI_REPLAY         -1
+#define DFL_HS_TO_MIN           0
+#define DFL_HS_TO_MAX           0
+#define DFL_BADMAC_LIMIT        -1
 
 #define LONG_RESPONSE "<p>01-blah-blah-blah-blah-blah-blah-blah-blah-blah\r\n" \
     "02-blah-blah-blah-blah-blah-blah-blah-blah-blah-blah-blah-blah-blah\r\n"  \
@@ -149,6 +160,7 @@ struct options
     int server_port;            /* port on which the ssl service runs       */
     int debug_level;            /* level of debugging                       */
     int nbio;                   /* should I/O be blocking?                  */
+    uint32_t read_timeout;      /* timeout on ssl_read() in milliseconds    */
     const char *ca_file;        /* the file with the CA certificate(s)      */
     const char *ca_path;        /* the path with the CA certificate(s) reside */
     const char *crt_file;       /* the file with the server certificate     */
@@ -176,6 +188,12 @@ struct options
     char *sni;                  /* string describing sni information        */
     const char *alpn_string;    /* ALPN supported protocols                 */
     const char *dhm_file;       /* the file with the DH parameters          */
+    int transport;              /* TLS or DTLS?                             */
+    int cookies;                /* Use cookies for DTLS? -1 to break them   */
+    int anti_replay;            /* Use anti-replay for DTLS? -1 for default */
+    uint32_t hs_to_min;         /* Initial value of DTLS handshake timer    */
+    uint32_t hs_to_max;         /* Max value of DTLS handshake timer        */
+    int badmac_limit;           /* Limit of records with bad MAC            */
 } opt;
 
 static void my_debug( void *ctx, int level, const char *str )
@@ -299,6 +317,37 @@ static int my_send( void *ctx, const unsigned char *buf, size_t len )
 #define USAGE_ALPN ""
 #endif /* POLARSSL_SSL_ALPN */
 
+#if defined(POLARSSL_SSL_DTLS_HELLO_VERIFY)
+#define USAGE_COOKIES \
+    "    cookies=0/1/-1      default: 1 (enabled)\n"        \
+    "                        0: disabled, -1: library default (broken)\n"
+#else
+#define USAGE_COOKIES ""
+#endif
+
+#if defined(POLARSSL_SSL_DTLS_ANTI_REPLAY)
+#define USAGE_ANTI_REPLAY \
+    "    anti_replay=0/1     default: (library default: enabled)\n"
+#else
+#define USAGE_ANTI_REPLAY ""
+#endif
+
+#if defined(POLARSSL_SSL_DTLS_BADMAC_LIMIT)
+#define USAGE_BADMAC_LIMIT \
+    "    badmac_limit=%%d     default: (library default: disabled)\n"
+#else
+#define USAGE_BADMAC_LIMIT ""
+#endif
+
+#if defined(POLARSSL_SSL_PROTO_DTLS)
+#define USAGE_DTLS \
+    "    dtls=%%d             default: 0 (TLS)\n"                           \
+    "    hs_timeout=%%d-%%d    default: (library default: 1000-60000)\n"    \
+    "                        range of DTLS handshake timeouts in millisecs\n"
+#else
+#define USAGE_DTLS ""
+#endif
+
 #define USAGE \
     "\n usage: ssl_server2 param=<>...\n"                   \
     "\n acceptable parameters:\n"                           \
@@ -307,6 +356,12 @@ static int my_send( void *ctx, const unsigned char *buf, size_t len )
     "    debug_level=%%d      default: 0 (disabled)\n"      \
     "    nbio=%%d             default: 0 (blocking I/O)\n"  \
     "                        options: 1 (non-blocking), 2 (added delays)\n" \
+    "    read_timeout=%%d     default: 0 (no timeout)\n"    \
+    "\n"                                                    \
+    USAGE_DTLS                                              \
+    USAGE_COOKIES                                           \
+    USAGE_ANTI_REPLAY                                       \
+    USAGE_BADMAC_LIMIT                                      \
     "\n"                                                    \
     "    auth_mode=%%s        default: \"optional\"\n"      \
     "                        options: none, optional, required\n" \
@@ -320,6 +375,7 @@ static int my_send( void *ctx, const unsigned char *buf, size_t len )
     "    renegotiate=%%d      default: 0 (disabled)\n"      \
     "    renego_delay=%%d     default: -2 (library default)\n" \
     "    exchanges=%%d        default: 1\n"                 \
+    "\n"                                                    \
     USAGE_TICKETS                                           \
     USAGE_CACHE                                             \
     USAGE_MAX_FRAG_LEN                                      \
@@ -328,7 +384,7 @@ static int my_send( void *ctx, const unsigned char *buf, size_t len )
     "    min_version=%%s      default: \"ssl3\"\n"          \
     "    max_version=%%s      default: \"tls1_2\"\n"        \
     "    force_version=%%s    default: \"\" (none)\n"       \
-    "                        options: ssl3, tls1, tls1_1, tls1_2\n"     \
+    "                        options: ssl3, tls1, tls1_1, tls1_2, dtls1, dtls1_2\n" \
     "\n"                                                                \
     "    version_suites=a,b,c,d      per-version ciphersuites\n"        \
     "                                in order from ssl3 to tls1_2\n"    \
@@ -572,7 +628,7 @@ int psk_callback( void *p_info, ssl_context *ssl,
 }
 #endif /* POLARSSL_KEY_EXCHANGE__SOME__PSK_ENABLED */
 
-static int listen_fd;
+static int listen_fd, client_fd = -1;
 
 /* Interruption handler to ensure clean exit (for valgrind testing) */
 #if !defined(_WIN32)
@@ -582,13 +638,13 @@ void term_handler( int sig )
     ((void) sig);
     received_sigterm = 1;
     net_close( listen_fd ); /* causes net_accept() to abort */
+    net_close( client_fd ); /* causes net_read() to abort */
 }
 #endif
 
 int main( int argc, char *argv[] )
 {
     int ret = 0, len, written, frags, exchanges;
-    int client_fd = -1;
     int version_suites[4][2];
     unsigned char buf[IO_BUF_LEN];
 #if defined(POLARSSL_KEY_EXCHANGE__SOME__PSK_ENABLED)
@@ -597,6 +653,10 @@ int main( int argc, char *argv[] )
     psk_entry *psk_info = NULL;
 #endif
     const char *pers = "ssl_server2";
+    unsigned char client_ip[16] = { 0 };
+#if defined(POLARSSL_SSL_COOKIE_C)
+    ssl_cookie_ctx cookie_ctx;
+#endif
 
     entropy_context entropy;
     ctr_drbg_context ctr_drbg;
@@ -654,6 +714,9 @@ int main( int argc, char *argv[] )
 #if defined(POLARSSL_SSL_ALPN)
     memset( (void *) alpn_list, 0, sizeof( alpn_list ) );
 #endif
+#if defined(POLARSSL_SSL_COOKIE_C)
+    ssl_cookie_init( &cookie_ctx );
+#endif
 
 #if !defined(_WIN32)
     /* Abort cleanly on SIGTERM */
@@ -686,6 +749,7 @@ int main( int argc, char *argv[] )
     opt.server_port         = DFL_SERVER_PORT;
     opt.debug_level         = DFL_DEBUG_LEVEL;
     opt.nbio                = DFL_NBIO;
+    opt.read_timeout        = DFL_READ_TIMEOUT;
     opt.ca_file             = DFL_CA_FILE;
     opt.ca_path             = DFL_CA_PATH;
     opt.crt_file            = DFL_CRT_FILE;
@@ -713,6 +777,12 @@ int main( int argc, char *argv[] )
     opt.sni                 = DFL_SNI;
     opt.alpn_string         = DFL_ALPN_STRING;
     opt.dhm_file            = DFL_DHM_FILE;
+    opt.transport           = DFL_TRANSPORT;
+    opt.cookies             = DFL_COOKIES;
+    opt.anti_replay         = DFL_ANTI_REPLAY;
+    opt.hs_to_min           = DFL_HS_TO_MIN;
+    opt.hs_to_max           = DFL_HS_TO_MAX;
+    opt.badmac_limit        = DFL_BADMAC_LIMIT;
 
     for( i = 1; i < argc; i++ )
     {
@@ -729,6 +799,16 @@ int main( int argc, char *argv[] )
         }
         else if( strcmp( p, "server_addr" ) == 0 )
             opt.server_addr = q;
+        else if( strcmp( p, "dtls" ) == 0 )
+        {
+            int t = atoi( q );
+            if( t == 0 )
+                opt.transport = SSL_TRANSPORT_STREAM;
+            else if( t == 1 )
+                opt.transport = SSL_TRANSPORT_DATAGRAM;
+            else
+                goto usage;
+        }
         else if( strcmp( p, "debug_level" ) == 0 )
         {
             opt.debug_level = atoi( q );
@@ -741,6 +821,8 @@ int main( int argc, char *argv[] )
             if( opt.nbio < 0 || opt.nbio > 2 )
                 goto usage;
         }
+        else if( strcmp( p, "read_timeout" ) == 0 )
+            opt.read_timeout = atoi( q );
         else if( strcmp( p, "ca_file" ) == 0 )
             opt.ca_file = q;
         else if( strcmp( p, "ca_path" ) == 0 )
@@ -798,7 +880,7 @@ int main( int argc, char *argv[] )
         else if( strcmp( p, "exchanges" ) == 0 )
         {
             opt.exchanges = atoi( q );
-            if( opt.exchanges < 1 )
+            if( opt.exchanges < 0 )
                 goto usage;
         }
         else if( strcmp( p, "min_version" ) == 0 )
@@ -807,9 +889,11 @@ int main( int argc, char *argv[] )
                 opt.min_version = SSL_MINOR_VERSION_0;
             else if( strcmp( q, "tls1" ) == 0 )
                 opt.min_version = SSL_MINOR_VERSION_1;
-            else if( strcmp( q, "tls1_1" ) == 0 )
+            else if( strcmp( q, "tls1_1" ) == 0 ||
+                     strcmp( q, "dtls1" ) == 0 )
                 opt.min_version = SSL_MINOR_VERSION_2;
-            else if( strcmp( q, "tls1_2" ) == 0 )
+            else if( strcmp( q, "tls1_2" ) == 0 ||
+                     strcmp( q, "dtls1_2" ) == 0 )
                 opt.min_version = SSL_MINOR_VERSION_3;
             else
                 goto usage;
@@ -820,9 +904,11 @@ int main( int argc, char *argv[] )
                 opt.max_version = SSL_MINOR_VERSION_0;
             else if( strcmp( q, "tls1" ) == 0 )
                 opt.max_version = SSL_MINOR_VERSION_1;
-            else if( strcmp( q, "tls1_1" ) == 0 )
+            else if( strcmp( q, "tls1_1" ) == 0 ||
+                     strcmp( q, "dtls1" ) == 0 )
                 opt.max_version = SSL_MINOR_VERSION_2;
-            else if( strcmp( q, "tls1_2" ) == 0 )
+            else if( strcmp( q, "tls1_2" ) == 0 ||
+                     strcmp( q, "dtls1_2" ) == 0 )
                 opt.max_version = SSL_MINOR_VERSION_3;
             else
                 goto usage;
@@ -848,6 +934,18 @@ int main( int argc, char *argv[] )
             {
                 opt.min_version = SSL_MINOR_VERSION_3;
                 opt.max_version = SSL_MINOR_VERSION_3;
+            }
+            else if( strcmp( q, "dtls1" ) == 0 )
+            {
+                opt.min_version = SSL_MINOR_VERSION_2;
+                opt.max_version = SSL_MINOR_VERSION_2;
+                opt.transport = SSL_TRANSPORT_DATAGRAM;
+            }
+            else if( strcmp( q, "dtls1_2" ) == 0 )
+            {
+                opt.min_version = SSL_MINOR_VERSION_3;
+                opt.max_version = SSL_MINOR_VERSION_3;
+                opt.transport = SSL_TRANSPORT_DATAGRAM;
             }
             else
                 goto usage;
@@ -904,6 +1002,34 @@ int main( int argc, char *argv[] )
             if( opt.cache_timeout < 0 )
                 goto usage;
         }
+        else if( strcmp( p, "cookies" ) == 0 )
+        {
+            opt.cookies = atoi( q );
+            if( opt.cookies < -1 || opt.cookies > 1)
+                goto usage;
+        }
+        else if( strcmp( p, "anti_replay" ) == 0 )
+        {
+            opt.anti_replay = atoi( q );
+            if( opt.anti_replay < 0 || opt.anti_replay > 1)
+                goto usage;
+        }
+        else if( strcmp( p, "badmac_limit" ) == 0 )
+        {
+            opt.badmac_limit = atoi( q );
+            if( opt.badmac_limit < 0 )
+                goto usage;
+        }
+        else if( strcmp( p, "hs_timeout" ) == 0 )
+        {
+            if( ( p = strchr( q, '-' ) ) == NULL )
+                goto usage;
+            *p++ = '\0';
+            opt.hs_to_min = atoi( q );
+            opt.hs_to_max = atoi( p );
+            if( opt.hs_to_min == 0 || opt.hs_to_max < opt.hs_to_min )
+                goto usage;
+        }
         else if( strcmp( p, "sni" ) == 0 )
         {
             opt.sni = q;
@@ -935,10 +1061,22 @@ int main( int argc, char *argv[] )
             ret = 2;
             goto usage;
         }
-        if( opt.max_version > ciphersuite_info->max_minor_ver )
+
+        /* If we select a version that's not supported by
+         * this suite, then there will be no common ciphersuite... */
+        if( opt.max_version == -1 ||
+            opt.max_version > ciphersuite_info->max_minor_ver )
+        {
             opt.max_version = ciphersuite_info->max_minor_ver;
+        }
         if( opt.min_version < ciphersuite_info->min_minor_ver )
+        {
             opt.min_version = ciphersuite_info->min_minor_ver;
+            /* DTLS starts with TLS 1.1 */
+            if( opt.transport == SSL_TRANSPORT_DATAGRAM &&
+                opt.min_version < SSL_MINOR_VERSION_2 )
+                opt.min_version = SSL_MINOR_VERSION_2;
+        }
     }
 
     if( opt.version_suites != NULL )
@@ -1222,11 +1360,15 @@ int main( int argc, char *argv[] )
     /*
      * 2. Setup the listening TCP socket
      */
-    printf( "  . Bind on tcp://localhost:%-4d/ ...", opt.server_port );
+    printf( "  . Bind on %s://%s:%-4d/ ...",
+            opt.transport == SSL_TRANSPORT_STREAM ? "tcp" : "udp",
+            opt.server_addr ? opt.server_addr : "*",
+            opt.server_port );
     fflush( stdout );
 
-    if( ( ret = net_bind( &listen_fd, opt.server_addr,
-                                      opt.server_port ) ) != 0 )
+    if( ( ret = net_bind( &listen_fd, opt.server_addr, opt.server_port,
+                          opt.transport == SSL_TRANSPORT_STREAM ?
+                          NET_PROTO_TCP : NET_PROTO_UDP ) ) != 0 )
     {
         printf( " failed\n  ! net_bind returned -0x%x\n\n", -ret );
         goto exit;
@@ -1248,6 +1390,17 @@ int main( int argc, char *argv[] )
 
     ssl_set_endpoint( &ssl, SSL_IS_SERVER );
     ssl_set_authmode( &ssl, opt.auth_mode );
+
+#if defined(POLARSSL_SSL_PROTO_DTLS)
+    if( ( ret = ssl_set_transport( &ssl, opt.transport ) ) != 0 )
+    {
+        printf( " failed\n  ! selected transport is not available\n" );
+        goto exit;
+    }
+
+    if( opt.hs_to_min != DFL_HS_TO_MIN || opt.hs_to_max != DFL_HS_TO_MAX )
+        ssl_set_handshake_timeout( &ssl, opt.hs_to_min, opt.hs_to_max );
+#endif /* POLARSSL_SSL_PROTO_DTLS */
 
 #if defined(POLARSSL_SSL_MAX_FRAGMENT_LENGTH)
     if( ( ret = ssl_set_max_frag_len( &ssl, opt.mfl_code ) ) != 0 )
@@ -1290,6 +1443,47 @@ int main( int argc, char *argv[] )
     if( opt.ticket_timeout != -1 )
         ssl_set_session_ticket_lifetime( &ssl, opt.ticket_timeout );
 #endif
+
+#if defined(POLARSSL_SSL_PROTO_DTLS)
+    if( opt.transport == SSL_TRANSPORT_DATAGRAM )
+    {
+#if defined(POLARSSL_SSL_COOKIE_C)
+        if( opt.cookies > 0 )
+        {
+            if( ( ret = ssl_cookie_setup( &cookie_ctx,
+                                          ctr_drbg_random, &ctr_drbg ) ) != 0 )
+            {
+                printf( " failed\n  ! ssl_cookie_setup returned %d\n\n", ret );
+                goto exit;
+            }
+
+            ssl_set_dtls_cookies( &ssl, ssl_cookie_write, ssl_cookie_check,
+                                       &cookie_ctx );
+        }
+        else
+#endif /* POLARSSL_SSL_COOKIE_C */
+#if defined(POLARSSL_SSL_DTLS_HELLO_VERIFY)
+        if( opt.cookies == 0 )
+        {
+            ssl_set_dtls_cookies( &ssl, NULL, NULL, NULL );
+        }
+        else
+#endif /* POLARSSL_SSL_DTLS_HELLO_VERIFY */
+        {
+            ; /* Nothing to do */
+        }
+
+#if defined(POLARSSL_SSL_DTLS_ANTI_REPLAY)
+        if( opt.anti_replay != DFL_ANTI_REPLAY )
+            ssl_set_dtls_anti_replay( &ssl, opt.anti_replay );
+#endif
+
+#if defined(POLARSSL_SSL_DTLS_BADMAC_LIMIT)
+        if( opt.badmac_limit != DFL_BADMAC_LIMIT )
+            ssl_set_dtls_badmac_limit( &ssl, opt.badmac_limit );
+#endif
+    }
+#endif /* POLARSSL_SSL_PROTO_DTLS */
 
     if( opt.force_ciphersuite[0] != DFL_FORCE_CIPHER )
         ssl_set_ciphersuites( &ssl, opt.force_ciphersuite );
@@ -1377,14 +1571,37 @@ int main( int argc, char *argv[] )
 #endif
 
     if( opt.min_version != -1 )
-        ssl_set_min_version( &ssl, SSL_MAJOR_VERSION_3, opt.min_version );
+    {
+        ret = ssl_set_min_version( &ssl, SSL_MAJOR_VERSION_3, opt.min_version );
+        if( ret != 0 )
+        {
+            printf( " failed\n  ! selected min_version is not available\n" );
+            goto exit;
+        }
+    }
 
     if( opt.max_version != -1 )
-        ssl_set_max_version( &ssl, SSL_MAJOR_VERSION_3, opt.max_version );
+    {
+        ret = ssl_set_max_version( &ssl, SSL_MAJOR_VERSION_3, opt.max_version );
+        if( ret != 0 )
+        {
+            printf( " failed\n  ! selected max_version is not available\n" );
+            goto exit;
+        }
+    }
 
     printf( " ok\n" );
 
 reset:
+#if !defined(_WIN32)
+    if( received_sigterm )
+    {
+        printf( " interrupted by SIGTERM\n" );
+        ret = 0;
+        goto exit;
+    }
+#endif
+
 #ifdef POLARSSL_ERROR_C
     if( ret != 0 )
     {
@@ -1407,7 +1624,7 @@ reset:
     printf( "  . Waiting for a remote connection ..." );
     fflush( stdout );
 
-    if( ( ret = net_accept( listen_fd, &client_fd, NULL ) ) != 0 )
+    if( ( ret = net_accept( listen_fd, &client_fd, client_ip ) ) != 0 )
     {
 #if !defined(_WIN32)
         if( received_sigterm )
@@ -1433,11 +1650,52 @@ reset:
     }
 
     if( opt.nbio == 2 )
-        ssl_set_bio( &ssl, my_recv, &client_fd, my_send, &client_fd );
+        ssl_set_bio_timeout( &ssl, &client_fd, my_send, my_recv, NULL, 0 );
     else
-        ssl_set_bio( &ssl, net_recv, &client_fd, net_send, &client_fd );
+        ssl_set_bio_timeout( &ssl, &client_fd, net_send, net_recv,
+#if defined(POLARSSL_HAVE_TIME)
+                             opt.nbio == 0 ? net_recv_timeout : NULL,
+#else
+                             NULL,
+#endif
+                             opt.read_timeout );
+
+#if defined(POLARSSL_SSL_DTLS_HELLO_VERIFY)
+    if( opt.transport == SSL_TRANSPORT_DATAGRAM )
+    {
+        if( ( ret = ssl_set_client_transport_id( &ssl, client_ip,
+                                               sizeof( client_ip ) ) ) != 0 )
+        {
+            printf( " failed\n  ! "
+                    "ssl_set_client_tranport_id() returned -0x%x\n\n", -ret );
+            goto exit;
+        }
+    }
+#endif /* POLARSSL_SSL_DTLS_HELLO_VERIFY */
 
     printf( " ok\n" );
+
+    /*
+     * With UDP, bind_fd is hijacked by client_fd, so bind a new one
+     */
+#if defined(POLARSSL_SSL_PROTO_DTLS)
+    if( opt.transport == SSL_TRANSPORT_DATAGRAM )
+    {
+        printf( "  . Re-bind on udp://%s:%-4d/ ...",
+                opt.server_addr ? opt.server_addr : "*",
+                opt.server_port );
+        fflush( stdout );
+
+        if( ( ret = net_bind( &listen_fd, opt.server_addr,
+                              opt.server_port, NET_PROTO_UDP ) ) != 0 )
+        {
+            printf( " failed\n  ! net_bind returned -0x%x\n\n", -ret );
+            goto exit;
+        }
+
+        printf( " ok\n" );
+    }
+#endif /* POLARSSL_SSL_PROTO_DTLS */
 
     /*
      * 4. Handshake
@@ -1445,17 +1703,31 @@ reset:
     printf( "  . Performing the SSL/TLS handshake..." );
     fflush( stdout );
 
-    while( ( ret = ssl_handshake( &ssl ) ) != 0 )
+    do ret = ssl_handshake( &ssl );
+    while( ret == POLARSSL_ERR_NET_WANT_READ ||
+           ret == POLARSSL_ERR_NET_WANT_WRITE );
+
+    if( ret == POLARSSL_ERR_SSL_HELLO_VERIFY_REQUIRED )
     {
-        if( ret != POLARSSL_ERR_NET_WANT_READ && ret != POLARSSL_ERR_NET_WANT_WRITE )
-        {
-            printf( " failed\n  ! ssl_handshake returned -0x%x\n\n", -ret );
-            goto reset;
-        }
+        printf( " hello verification requested\n" );
+        ret = 0;
+        goto reset;
+    }
+    else if( ret != 0 )
+    {
+        printf( " failed\n  ! ssl_handshake returned -0x%x\n\n", -ret );
+        goto reset;
+    }
+    else /* ret == 0 */
+    {
+        printf( " ok\n    [ Protocol is %s ]\n    [ Ciphersuite is %s ]\n",
+                ssl_get_version( &ssl ), ssl_get_ciphersuite( &ssl ) );
     }
 
-    printf( " ok\n    [ Protocol is %s ]\n    [ Ciphersuite is %s ]\n",
-            ssl_get_version( &ssl ), ssl_get_ciphersuite( &ssl ) );
+    if( ( ret = ssl_get_record_expansion( &ssl ) ) >= 0 )
+        printf( "    [ Record expansion is %d ]\n", ret );
+    else
+        printf( "    [ Record expansion is unknown (compression) ]\n" );
 
 #if defined(POLARSSL_SSL_ALPN)
     if( opt.alpn_string != NULL )
@@ -1502,6 +1774,9 @@ reset:
     }
 #endif /* POLARSSL_X509_CRT_PARSE_C */
 
+    if( opt.exchanges == 0 )
+        goto close_notify;
+
     exchanges = opt.exchanges;
 data_exchange:
     /*
@@ -1510,16 +1785,111 @@ data_exchange:
     printf( "  < Read from client:" );
     fflush( stdout );
 
-    do
+    /*
+     * TLS and DTLS need different reading styles (stream vs datagram)
+     */
+    if( opt.transport == SSL_TRANSPORT_STREAM )
     {
-        int terminated = 0;
+        do
+        {
+            int terminated = 0;
+            len = sizeof( buf ) - 1;
+            memset( buf, 0, sizeof( buf ) );
+            ret = ssl_read( &ssl, buf, len );
+
+            if( ret == POLARSSL_ERR_NET_WANT_READ ||
+                ret == POLARSSL_ERR_NET_WANT_WRITE )
+                continue;
+
+            if( ret <= 0 )
+            {
+                switch( ret )
+                {
+                    case POLARSSL_ERR_SSL_PEER_CLOSE_NOTIFY:
+                        printf( " connection was closed gracefully\n" );
+                        goto close_notify;
+
+                    case 0:
+                    case POLARSSL_ERR_NET_CONN_RESET:
+                        printf( " connection was reset by peer\n" );
+                        ret = POLARSSL_ERR_NET_CONN_RESET;
+                        goto reset;
+
+                    default:
+                        printf( " ssl_read returned -0x%x\n", -ret );
+                        goto reset;
+                }
+            }
+
+            if( ssl_get_bytes_avail( &ssl ) == 0 )
+            {
+                len = ret;
+                buf[len] = '\0';
+                printf( " %d bytes read\n\n%s\n", len, (char *) buf );
+
+                /* End of message should be detected according to the syntax of the
+                 * application protocol (eg HTTP), just use a dummy test here. */
+                if( buf[len - 1] == '\n' )
+                    terminated = 1;
+            }
+            else
+            {
+                int extra_len, ori_len;
+                unsigned char *larger_buf;
+
+                ori_len = ret;
+                extra_len = ssl_get_bytes_avail( &ssl );
+
+                larger_buf = polarssl_malloc( ori_len + extra_len + 1 );
+                if( larger_buf == NULL )
+                {
+                    printf( "  ! memory allocation failed\n" );
+                    ret = 1;
+                    goto reset;
+                }
+
+                memset( larger_buf, 0, ori_len + extra_len );
+                memcpy( larger_buf, buf, ori_len );
+
+                /* This read should never fail and get the whole cached data */
+                ret = ssl_read( &ssl, larger_buf + ori_len, extra_len );
+                if( ret != extra_len ||
+                    ssl_get_bytes_avail( &ssl ) != 0 )
+                {
+                    printf( "  ! ssl_read failed on cached data\n" );
+                    ret = 1;
+                    goto reset;
+                }
+
+                larger_buf[ori_len + extra_len] = '\0';
+                printf( " %u bytes read (%u + %u)\n\n%s\n",
+                        ori_len + extra_len, ori_len, extra_len,
+                        (char *) larger_buf );
+
+                /* End of message should be detected according to the syntax of the
+                 * application protocol (eg HTTP), just use a dummy test here. */
+                if( larger_buf[ori_len + extra_len - 1] == '\n' )
+                    terminated = 1;
+
+                polarssl_free( larger_buf );
+            }
+
+            if( terminated )
+            {
+                ret = 0;
+                break;
+            }
+        }
+        while( 1 );
+    }
+    else /* Not stream, so datagram */
+    {
         len = sizeof( buf ) - 1;
         memset( buf, 0, sizeof( buf ) );
-        ret = ssl_read( &ssl, buf, len );
 
-        if( ret == POLARSSL_ERR_NET_WANT_READ ||
-            ret == POLARSSL_ERR_NET_WANT_WRITE )
-            continue;
+        do ret = ssl_read( &ssl, buf, len );
+        while( ret == POLARSSL_ERR_NET_WANT_READ ||
+               ret == POLARSSL_ERR_NET_WANT_WRITE );
 
         if( ret <= 0 )
         {
@@ -1527,13 +1897,8 @@ data_exchange:
             {
                 case POLARSSL_ERR_SSL_PEER_CLOSE_NOTIFY:
                     printf( " connection was closed gracefully\n" );
+                    ret = 0;
                     goto close_notify;
-
-                case 0:
-                case POLARSSL_ERR_NET_CONN_RESET:
-                    printf( " connection was reset by peer\n" );
-                    ret = POLARSSL_ERR_NET_CONN_RESET;
-                    goto reset;
 
                 default:
                     printf( " ssl_read returned -0x%x\n", -ret );
@@ -1541,72 +1906,17 @@ data_exchange:
             }
         }
 
-        if( ssl_get_bytes_avail( &ssl ) == 0 )
-        {
-            len = ret;
-            buf[len] = '\0';
-            printf( " %d bytes read\n\n%s\n", len, (char *) buf );
-
-            /* End of message should be detected according to the syntax of the
-             * application protocol (eg HTTP), just use a dummy test here. */
-            if( buf[len - 1] == '\n' )
-                terminated = 1;
-        }
-        else
-        {
-            int extra_len, ori_len;
-            unsigned char *larger_buf;
-
-            ori_len = ret;
-            extra_len = ssl_get_bytes_avail( &ssl );
-
-            larger_buf = polarssl_malloc( ori_len + extra_len + 1 );
-            if( larger_buf == NULL )
-            {
-                printf( "  ! memory allocation failed\n" );
-                ret = 1;
-                goto reset;
-            }
-
-            memset( larger_buf, 0, ori_len + extra_len );
-            memcpy( larger_buf, buf, ori_len );
-
-            /* This read should never fail and get the whole cached data */
-            ret = ssl_read( &ssl, larger_buf + ori_len, extra_len );
-            if( ret != extra_len ||
-                ssl_get_bytes_avail( &ssl ) != 0 )
-            {
-                printf( "  ! ssl_read failed on cached data\n" );
-                ret = 1;
-                goto reset;
-            }
-
-            larger_buf[ori_len + extra_len] = '\0';
-            printf( " %u bytes read (%u + %u)\n\n%s\n",
-                    ori_len + extra_len, ori_len, extra_len,
-                    (char *) larger_buf );
-
-            /* End of message should be detected according to the syntax of the
-             * application protocol (eg HTTP), just use a dummy test here. */
-            if( larger_buf[ori_len + extra_len - 1] == '\n' )
-                terminated = 1;
-
-            polarssl_free( larger_buf );
-        }
-
-        if( terminated )
-        {
-            ret = 0;
-            break;
-        }
+        len = ret;
+        buf[len] = '\0';
+        printf( " %d bytes read\n\n%s", len, (char *) buf );
+        ret = 0;
     }
-    while( 1 );
 
     /*
      * 7a. Request renegotiation while client is waiting for input from us.
-     * (only if we're going to exhange more data afterwards)
+     * (only on the first exchange, to be able to test retransmission)
      */
-    if( opt.renegotiate && exchanges > 1 )
+    if( opt.renegotiate && exchanges == opt.exchanges )
     {
         printf( "  . Requestion renegotiation..." );
         fflush( stdout );
@@ -1633,22 +1943,42 @@ data_exchange:
     len = sprintf( (char *) buf, HTTP_RESPONSE,
                    ssl_get_ciphersuite( &ssl ) );
 
-    for( written = 0, frags = 0; written < len; written += ret, frags++ )
+    if( opt.transport == SSL_TRANSPORT_STREAM )
     {
-        while( ( ret = ssl_write( &ssl, buf + written, len - written ) ) <= 0 )
+        for( written = 0, frags = 0; written < len; written += ret, frags++ )
         {
-            if( ret == POLARSSL_ERR_NET_CONN_RESET )
+            while( ( ret = ssl_write( &ssl, buf + written, len - written ) )
+                           <= 0 )
             {
-                printf( " failed\n  ! peer closed the connection\n\n" );
-                goto reset;
-            }
+                if( ret == POLARSSL_ERR_NET_CONN_RESET )
+                {
+                    printf( " failed\n  ! peer closed the connection\n\n" );
+                    goto reset;
+                }
 
-            if( ret != POLARSSL_ERR_NET_WANT_READ && ret != POLARSSL_ERR_NET_WANT_WRITE )
-            {
-                printf( " failed\n  ! ssl_write returned %d\n\n", ret );
-                goto reset;
+                if( ret != POLARSSL_ERR_NET_WANT_READ &&
+                    ret != POLARSSL_ERR_NET_WANT_WRITE )
+                {
+                    printf( " failed\n  ! ssl_write returned %d\n\n", ret );
+                    goto reset;
+                }
             }
         }
+    }
+    else /* Not stream, so datagram */
+    {
+        do ret = ssl_write( &ssl, buf, len );
+        while( ret == POLARSSL_ERR_NET_WANT_READ ||
+               ret == POLARSSL_ERR_NET_WANT_WRITE );
+
+        if( ret < 0 )
+        {
+            printf( " failed\n  ! ssl_write returned %d\n\n", ret );
+            goto reset;
+        }
+
+        frags = 1;
+        written = ret;
     }
 
     buf[written] = '\0';
@@ -1667,24 +1997,13 @@ data_exchange:
 close_notify:
     printf( "  . Closing the connection..." );
 
-    while( ( ret = ssl_close_notify( &ssl ) ) < 0 )
-    {
-        if( ret == POLARSSL_ERR_NET_CONN_RESET )
-        {
-            printf( " ok (already closed by peer)\n" );
-            ret = 0;
-            goto reset;
-        }
+    /* No error checking, the connection might be closed already */
+    do
+        ret = ssl_close_notify( &ssl );
+    while( ret == POLARSSL_ERR_NET_WANT_WRITE );
+    ret = 0;
 
-        if( ret != POLARSSL_ERR_NET_WANT_READ &&
-            ret != POLARSSL_ERR_NET_WANT_WRITE )
-        {
-            printf( " failed\n  ! ssl_close_notify returned %d\n\n", ret );
-            goto reset;
-        }
-    }
-
-    printf( " ok\n" );
+    printf( " done\n" );
     goto reset;
 
     /*
@@ -1729,6 +2048,9 @@ exit:
 
 #if defined(POLARSSL_SSL_CACHE_C)
     ssl_cache_free( &cache );
+#endif
+#if defined(POLARSSL_SSL_COOKIE_C)
+    ssl_cookie_free( &cookie_ctx );
 #endif
 
 #if defined(POLARSSL_MEMORY_BUFFER_ALLOC_C)

@@ -6,13 +6,14 @@
 # rather specific options (max fragment length, truncated hmac, etc)
 # or procedures (session resumption from cache or ticket, renego, etc).
 #
-# Assumes all options are compiled in.
+# Assumes a build with default options.
 
 set -u
 
 # default values, can be overriden by the environment
 : ${P_SRV:=../programs/ssl/ssl_server2}
 : ${P_CLI:=../programs/ssl/ssl_client2}
+: ${P_PXY:=../programs/test/udp_proxy}
 : ${OPENSSL_CMD:=openssl} # OPENSSL would conflict with the build system
 : ${GNUTLS_CLI:=gnutls-cli}
 : ${GNUTLS_SERV:=gnutls-serv}
@@ -75,6 +76,7 @@ requires_openssl_with_sslv2() {
             OPENSSL_HAS_SSL2="NO"
         fi
     fi
+
     if [ "$OPENSSL_HAS_SSL2" = "NO" ]; then
         SKIP_NEXT="YES"
     fi
@@ -94,6 +96,38 @@ requires_gnutls() {
     fi
 }
 
+# skip next test if IPv6 isn't available on this host
+requires_ipv6() {
+    if [ -z "${HAS_IPV6:-}" ]; then
+        $P_SRV server_addr='::1' > $SRV_OUT 2>&1 &
+        SRV_PID=$!
+        sleep 1
+        kill $SRV_PID >/dev/null 2>&1
+        if grep "NET - Binding of the socket failed" $SRV_OUT >/dev/null; then
+            HAS_IPV6="NO"
+        else
+            HAS_IPV6="YES"
+        fi
+        rm -r $SRV_OUT
+    fi
+
+    if [ "$HAS_IPV6" = "NO" ]; then
+        SKIP_NEXT="YES"
+    fi
+}
+
+# skip the next test if valgrind is in use
+not_with_valgrind() {
+    if [ "$MEMCHECK" -gt 0 ]; then
+        SKIP_NEXT="YES"
+    fi
+}
+
+# multiply the client timeout delay by the given factor for the next test
+needs_more_time() {
+    CLI_DELAY_FACTOR=$1
+}
+
 # print_name <name>
 print_name() {
     echo -n "$1 "
@@ -111,14 +145,23 @@ fail() {
 
     mv $SRV_OUT o-srv-${TESTS}.log
     mv $CLI_OUT o-cli-${TESTS}.log
-    echo "  ! outputs saved to o-srv-${TESTS}.log and o-cli-${TESTS}.log"
+    if [ -n "$PXY_CMD" ]; then
+        mv $PXY_OUT o-pxy-${TESTS}.log
+    fi
+    echo "  ! outputs saved to o-XXX-${TESTS}.log"
 
     if [ "X${USER:-}" = Xbuildbot -o "X${LOGNAME:-}" = Xbuildbot ]; then
         echo "  ! server output:"
         cat o-srv-${TESTS}.log
-        echo "  ! ============================================================"
+        echo "  ! ========================================================"
         echo "  ! client output:"
         cat o-cli-${TESTS}.log
+        if [ -n "$PXY_CMD" ]; then
+            echo "  ! ========================================================"
+            echo "  ! proxy output:"
+            cat o-pxy-${TESTS}.log
+        fi
+        echo ""
     fi
 
     FAILS=$(( $FAILS + 1 ))
@@ -127,6 +170,28 @@ fail() {
 # is_polar <cmd_line>
 is_polar() {
     echo "$1" | grep 'ssl_server2\|ssl_client2' > /dev/null
+}
+
+# openssl s_server doesn't have -www with DTLS
+check_osrv_dtls() {
+    if echo "$SRV_CMD" | grep 's_server.*-dtls' >/dev/null; then
+        NEEDS_INPUT=1
+        SRV_CMD="$( echo $SRV_CMD | sed s/-www// )"
+    else
+        NEEDS_INPUT=0
+    fi
+}
+
+# provide input to commands that need it
+provide_input() {
+    if [ $NEEDS_INPUT -eq 0 ]; then
+        return
+    fi
+
+    while true; do
+        echo "HTTP/1.0 200 OK"
+        sleep 1
+    done
 }
 
 # has_mem_err <log_file_name>
@@ -145,13 +210,17 @@ wait_server_start() {
     if which lsof >/dev/null; then
         # make sure we don't loop forever
         ( sleep "$DOG_DELAY"; echo "SERVERSTART TIMEOUT"; kill $MAIN_PID ) &
-        WATCHDOG_PID=$!
+        DOG_PID=$!
 
         # make a tight loop, server usually takes less than 1 sec to start
-        until lsof -nbi TCP:"$PORT" | grep LISTEN >/dev/null; do :; done
+        if [ "$DTLS" -eq 1 ]; then
+            until lsof -nbi UDP:"$SRV_PORT" | grep UDP >/dev/null; do :; done
+        else
+            until lsof -nbi TCP:"$SRV_PORT" | grep LISTEN >/dev/null; do :; done
+        fi
 
-        kill $WATCHDOG_PID
-        wait $WATCHDOG_PID
+        kill $DOG_PID >/dev/null 2>&1
+        wait $DOG_PID
     else
         sleep "$START_DELAY"
     fi
@@ -162,32 +231,42 @@ wait_server_start() {
 wait_client_done() {
     CLI_PID=$!
 
-    ( sleep "$DOG_DELAY"; echo "TIMEOUT" >> $CLI_OUT; kill $CLI_PID ) &
-    WATCHDOG_PID=$!
+    CLI_DELAY=$(( $DOG_DELAY * $CLI_DELAY_FACTOR ))
+    CLI_DELAY_FACTOR=1
+
+    ( sleep $CLI_DELAY; echo "TIMEOUT" >> $CLI_OUT; kill $CLI_PID ) &
+    DOG_PID=$!
 
     wait $CLI_PID
     CLI_EXIT=$?
 
-    kill $WATCHDOG_PID
-    wait $WATCHDOG_PID
+    kill $DOG_PID >/dev/null 2>&1
+    wait $DOG_PID
 
     echo "EXIT: $CLI_EXIT" >> $CLI_OUT
 }
 
-# Usage: run_test name srv_cmd cli_cmd cli_exit [option [...]]
+# check if the given command uses dtls and sets global variable DTLS
+detect_dtls() {
+    if echo "$1" | grep 'dtls=1\|-dtls1\|-u' >/dev/null; then
+        DTLS=1
+    else
+        DTLS=0
+    fi
+}
+
+# Usage: run_test name [-p proxy_cmd] srv_cmd cli_cmd cli_exit [option [...]]
 # Options:  -s pattern  pattern that must be present in server output
 #           -c pattern  pattern that must be present in client output
 #           -S pattern  pattern that must be absent in server output
 #           -C pattern  pattern that must be absent in client output
 run_test() {
     NAME="$1"
-    SRV_CMD="$2"
-    CLI_CMD="$3"
-    CLI_EXPECT="$4"
-    shift 4
+    shift 1
 
     if echo "$NAME" | grep "$FILTER" | grep -v "$EXCLUDE" >/dev/null; then :
     else
+        SKIP_NEXT="NO"
         return
     fi
 
@@ -201,6 +280,30 @@ run_test() {
         return
     fi
 
+    # does this test use a proxy?
+    if [ "X$1" = "X-p" ]; then
+        PXY_CMD="$2"
+        shift 2
+    else
+        PXY_CMD=""
+    fi
+
+    # get commands and client output
+    SRV_CMD="$1"
+    CLI_CMD="$2"
+    CLI_EXPECT="$3"
+    shift 3
+
+    # fix client port
+    if [ -n "$PXY_CMD" ]; then
+        CLI_CMD=$( echo "$CLI_CMD" | sed s/+SRV_PORT/$PXY_PORT/g )
+    else
+        CLI_CMD=$( echo "$CLI_CMD" | sed s/+SRV_PORT/$SRV_PORT/g )
+    fi
+
+    # update DTLS variable
+    detect_dtls "$SRV_CMD"
+
     # prepend valgrind to our commands if active
     if [ "$MEMCHECK" -gt 0 ]; then
         if is_polar "$SRV_CMD"; then
@@ -212,8 +315,16 @@ run_test() {
     fi
 
     # run the commands
+    if [ -n "$PXY_CMD" ]; then
+        echo "$PXY_CMD" > $PXY_OUT
+        $PXY_CMD >> $PXY_OUT 2>&1 &
+        PXY_PID=$!
+        # assume proxy starts faster than server
+    fi
+
+    check_osrv_dtls
     echo "$SRV_CMD" > $SRV_OUT
-    $SRV_CMD >> $SRV_OUT 2>&1 &
+    provide_input | $SRV_CMD >> $SRV_OUT 2>&1 &
     SRV_PID=$!
     wait_server_start
 
@@ -221,9 +332,13 @@ run_test() {
     eval "$CLI_CMD" >> $CLI_OUT 2>&1 &
     wait_client_done
 
-    # kill the server
+    # terminate the server (and the proxy)
     kill $SRV_PID
     wait $SRV_PID
+    if [ -n "$PXY_CMD" ]; then
+        kill $PXY_PID >/dev/null 2>&1
+        wait $PXY_PID
+    fi
 
     # check if the client and server went at least to the handshake stage
     # (useful to avoid tests with only negative assertions and non-zero
@@ -254,7 +369,7 @@ run_test() {
     if [ \( "$CLI_EXPECT" = 0 -a "$CLI_EXIT" != 0 \) -o \
          \( "$CLI_EXPECT" != 0 -a "$CLI_EXIT" = 0 \) ]
     then
-        fail "bad client exit code"
+        fail "bad client exit code (expected $CLI_EXPECT, got $CLI_EXIT)"
         return
     fi
 
@@ -312,13 +427,15 @@ run_test() {
 
     # if we're here, everything is ok
     echo "PASS"
-    rm -f $SRV_OUT $CLI_OUT
+    rm -f $SRV_OUT $CLI_OUT $PXY_OUT
 }
 
 cleanup() {
-    rm -f $CLI_OUT $SRV_OUT $SESSION
-    kill $SRV_PID >/dev/null 2>&1
-    kill $WATCHDOG_PID >/dev/null 2>&1
+    rm -f $CLI_OUT $SRV_OUT $PXY_OUT $SESSION
+    test -n "${SRV_PID:-}" && kill $SRV_PID >/dev/null 2>&1
+    test -n "${PXY_PID:-}" && kill $PXY_PID >/dev/null 2>&1
+    test -n "${CLI_PID:-}" && kill $CLI_PID >/dev/null 2>&1
+    test -n "${DOG_PID:-}" && kill $DOG_PID >/dev/null 2>&1
     exit 1
 }
 
@@ -337,6 +454,10 @@ if [ ! -x "$P_CLI" ]; then
     echo "Command '$P_CLI' is not an executable file"
     exit 1
 fi
+if [ ! -x "$P_PXY" ]; then
+    echo "Command '$P_PXY' is not an executable file"
+    exit 1
+fi
 if which $OPENSSL_CMD >/dev/null 2>&1; then :; else
     echo "Command '$OPENSSL_CMD' not found"
     exit 1
@@ -353,22 +474,28 @@ else
     START_DELAY=1
     DOG_DELAY=10
 fi
+CLI_DELAY_FACTOR=1
 
-# Pick a "unique" port in the range 10000-19999.
-PORT="0000$$"
-PORT="1$(echo $PORT | tail -c 5)"
+# Pick a "unique" server port in the range 10000-19999, and a proxy port
+PORT_BASE="0000$$"
+PORT_BASE="$( echo -n $PORT_BASE | tail -c 4 )"
+SRV_PORT="1$PORT_BASE"
+PXY_PORT="2$PORT_BASE"
+unset PORT_BASE
 
-# fix commands to use this port
-P_SRV="$P_SRV server_port=$PORT"
-P_CLI="$P_CLI server_port=$PORT"
-O_SRV="$O_SRV -accept $PORT"
-O_CLI="$O_CLI -connect localhost:$PORT"
-G_SRV="$G_SRV -p $PORT"
-G_CLI="$G_CLI -p $PORT"
+# fix commands to use this port, force IPv4 while at it
+P_SRV="$P_SRV server_addr=127.0.0.1 server_port=$SRV_PORT"
+P_CLI="$P_CLI server_addr=127.0.0.1 server_port=+SRV_PORT"
+P_PXY="$P_PXY server_addr=127.0.0.1 server_port=$SRV_PORT listen_addr=127.0.0.1 listen_port=$PXY_PORT"
+O_SRV="$O_SRV -accept $SRV_PORT"
+O_CLI="$O_CLI -connect localhost:+SRV_PORT"
+G_SRV="$G_SRV -p $SRV_PORT"
+G_CLI="$G_CLI -p +SRV_PORT"
 
 # Also pick a unique name for intermediate files
 SRV_OUT="srv_out.$$"
 CLI_OUT="cli_out.$$"
+PXY_OUT="pxy_out.$$"
 SESSION="session.$$"
 
 SKIP_NEXT="NO"
@@ -622,6 +749,39 @@ run_test    "Max fragment length: gnutls server" \
             -c "client hello, adding max_fragment_length extension" \
             -c "found max_fragment_length extension"
 
+run_test    "Max fragment length: client, message just fits" \
+            "$P_SRV debug_level=3" \
+            "$P_CLI debug_level=3 max_frag_len=2048 request_size=2048" \
+            0 \
+            -c "client hello, adding max_fragment_length extension" \
+            -s "found max fragment length extension" \
+            -s "server hello, max_fragment_length extension" \
+            -c "found max_fragment_length extension" \
+            -c "2048 bytes written in 1 fragments" \
+            -s "2048 bytes read"
+
+run_test    "Max fragment length: client, larger message" \
+            "$P_SRV debug_level=3" \
+            "$P_CLI debug_level=3 max_frag_len=2048 request_size=2345" \
+            0 \
+            -c "client hello, adding max_fragment_length extension" \
+            -s "found max fragment length extension" \
+            -s "server hello, max_fragment_length extension" \
+            -c "found max_fragment_length extension" \
+            -c "2345 bytes written in 2 fragments" \
+            -s "2048 bytes read" \
+            -s "297 bytes read"
+
+run_test    "Max fragment length: client, larger message" \
+            "$P_SRV debug_level=3 dtls=1" \
+            "$P_CLI debug_level=3 dtls=1 max_frag_len=2048 request_size=2345" \
+            1 \
+            -c "client hello, adding max_fragment_length extension" \
+            -s "found max fragment length extension" \
+            -s "server hello, max_fragment_length extension" \
+            -c "found max_fragment_length extension" \
+            -c "fragment larger than.*maximum"
+
 # Tests for renegotiation
 
 run_test    "Renegotiation: none, for reference" \
@@ -797,7 +957,7 @@ run_test    "Renegotiation: nbio, server-initiated" \
             -s "write hello request"
 
 run_test    "Renegotiation: openssl server, client-initiated" \
-            "$O_SRV" \
+            "$O_SRV -www" \
             "$P_CLI debug_level=3 exchanges=1 renegotiation=1 renegotiate=1" \
             0 \
             -c "client hello, adding renegotiation extension" \
@@ -817,6 +977,44 @@ run_test    "Renegotiation: gnutls server, client-initiated" \
             -C "ssl_handshake returned" \
             -C "error" \
             -c "HTTP/1.0 200 [Oo][Kk]"
+
+run_test    "Renegotiation: DTLS, client-initiated" \
+            "$P_SRV debug_level=3 dtls=1 exchanges=2 renegotiation=1" \
+            "$P_CLI debug_level=3 dtls=1 exchanges=2 renegotiation=1 renegotiate=1" \
+            0 \
+            -c "client hello, adding renegotiation extension" \
+            -s "received TLS_EMPTY_RENEGOTIATION_INFO" \
+            -s "found renegotiation extension" \
+            -s "server hello, secure renegotiation extension" \
+            -c "found renegotiation extension" \
+            -c "=> renegotiate" \
+            -s "=> renegotiate" \
+            -S "write hello request"
+
+run_test    "Renegotiation: DTLS, server-initiated" \
+            "$P_SRV debug_level=3 dtls=1 exchanges=2 renegotiation=1 renegotiate=1" \
+            "$P_CLI debug_level=3 dtls=1 exchanges=2 renegotiation=1 \
+             read_timeout=1000 max_resend=2" \
+            0 \
+            -c "client hello, adding renegotiation extension" \
+            -s "received TLS_EMPTY_RENEGOTIATION_INFO" \
+            -s "found renegotiation extension" \
+            -s "server hello, secure renegotiation extension" \
+            -c "found renegotiation extension" \
+            -c "=> renegotiate" \
+            -s "=> renegotiate" \
+            -s "write hello request"
+
+run_test    "Renegotiation: DTLS, gnutls server, client-initiated" \
+            "$G_SRV -u --mtu 4096" \
+            "$P_CLI debug_level=3 dtls=1 exchanges=1 renegotiation=1 renegotiate=1" \
+            0 \
+            -c "client hello, adding renegotiation extension" \
+            -c "found renegotiation extension" \
+            -c "=> renegotiate" \
+            -C "ssl_handshake returned" \
+            -C "error" \
+            -s "Extra-header:"
 
 # Tests for auth_mode
 
@@ -958,43 +1156,39 @@ run_test    "Authentication: client no cert, ssl3" \
 # tests for SNI
 
 run_test    "SNI: no SNI callback" \
-            "$P_SRV debug_level=3 server_addr=127.0.0.1 \
+            "$P_SRV debug_level=3 \
              crt_file=data_files/server5.crt key_file=data_files/server5.key" \
-            "$P_CLI debug_level=0 server_addr=127.0.0.1 \
-             server_name=localhost" \
+            "$P_CLI server_name=localhost" \
              0 \
              -S "parse ServerName extension" \
              -c "issuer name *: C=NL, O=PolarSSL, CN=Polarssl Test EC CA" \
              -c "subject name *: C=NL, O=PolarSSL, CN=localhost"
 
 run_test    "SNI: matching cert 1" \
-            "$P_SRV debug_level=3 server_addr=127.0.0.1 \
+            "$P_SRV debug_level=3 \
              crt_file=data_files/server5.crt key_file=data_files/server5.key \
              sni=localhost,data_files/server2.crt,data_files/server2.key,polarssl.example,data_files/server1-nospace.crt,data_files/server1.key" \
-            "$P_CLI debug_level=0 server_addr=127.0.0.1 \
-             server_name=localhost" \
+            "$P_CLI server_name=localhost" \
              0 \
              -s "parse ServerName extension" \
              -c "issuer name *: C=NL, O=PolarSSL, CN=PolarSSL Test CA" \
              -c "subject name *: C=NL, O=PolarSSL, CN=localhost"
 
 run_test    "SNI: matching cert 2" \
-            "$P_SRV debug_level=3 server_addr=127.0.0.1 \
+            "$P_SRV debug_level=3 \
              crt_file=data_files/server5.crt key_file=data_files/server5.key \
              sni=localhost,data_files/server2.crt,data_files/server2.key,polarssl.example,data_files/server1-nospace.crt,data_files/server1.key" \
-            "$P_CLI debug_level=0 server_addr=127.0.0.1 \
-             server_name=polarssl.example" \
+            "$P_CLI server_name=polarssl.example" \
              0 \
              -s "parse ServerName extension" \
              -c "issuer name *: C=NL, O=PolarSSL, CN=PolarSSL Test CA" \
              -c "subject name *: C=NL, O=PolarSSL, CN=polarssl.example"
 
 run_test    "SNI: no matching cert" \
-            "$P_SRV debug_level=3 server_addr=127.0.0.1 \
+            "$P_SRV debug_level=3 \
              crt_file=data_files/server5.crt key_file=data_files/server5.key \
              sni=localhost,data_files/server2.crt,data_files/server2.key,polarssl.example,data_files/server1-nospace.crt,data_files/server1.key" \
-            "$P_CLI debug_level=0 server_addr=127.0.0.1 \
-             server_name=nonesuch.example" \
+            "$P_CLI server_name=nonesuch.example" \
              1 \
              -s "parse ServerName extension" \
              -s "ssl_sni_wrapper() returned" \
@@ -1842,6 +2036,489 @@ run_test    "Large packet TLS 1.2 AEAD shorter tag" \
              force_ciphersuite=TLS-RSA-WITH-AES-256-CCM-8" \
             0 \
             -s "Read from client: 16384 bytes read"
+
+# Tests for DTLS HelloVerifyRequest
+
+run_test    "DTLS cookie: enabled" \
+            "$P_SRV dtls=1 debug_level=2" \
+            "$P_CLI dtls=1 debug_level=2" \
+            0 \
+            -s "cookie verification failed" \
+            -s "cookie verification passed" \
+            -S "cookie verification skipped" \
+            -c "received hello verify request" \
+            -s "hello verification requested" \
+            -S "SSL - The requested feature is not available"
+
+run_test    "DTLS cookie: disabled" \
+            "$P_SRV dtls=1 debug_level=2 cookies=0" \
+            "$P_CLI dtls=1 debug_level=2" \
+            0 \
+            -S "cookie verification failed" \
+            -S "cookie verification passed" \
+            -s "cookie verification skipped" \
+            -C "received hello verify request" \
+            -S "hello verification requested" \
+            -S "SSL - The requested feature is not available"
+
+run_test    "DTLS cookie: default (failing)" \
+            "$P_SRV dtls=1 debug_level=2 cookies=-1" \
+            "$P_CLI dtls=1 debug_level=2 hs_timeout=100-400" \
+            1 \
+            -s "cookie verification failed" \
+            -S "cookie verification passed" \
+            -S "cookie verification skipped" \
+            -C "received hello verify request" \
+            -S "hello verification requested" \
+            -s "SSL - The requested feature is not available"
+
+requires_ipv6
+run_test    "DTLS cookie: enabled, IPv6" \
+            "$P_SRV dtls=1 debug_level=2 server_addr=::1" \
+            "$P_CLI dtls=1 debug_level=2 server_addr=::1" \
+            0 \
+            -s "cookie verification failed" \
+            -s "cookie verification passed" \
+            -S "cookie verification skipped" \
+            -c "received hello verify request" \
+            -s "hello verification requested" \
+            -S "SSL - The requested feature is not available"
+
+run_test    "DTLS cookie: enabled, nbio" \
+            "$P_SRV dtls=1 nbio=2 debug_level=2" \
+            "$P_CLI dtls=1 nbio=2 debug_level=2" \
+            0 \
+            -s "cookie verification failed" \
+            -s "cookie verification passed" \
+            -S "cookie verification skipped" \
+            -c "received hello verify request" \
+            -s "hello verification requested" \
+            -S "SSL - The requested feature is not available"
+
+# Tests for various cases of client authentication with DTLS
+# (focused on handshake flows and message parsing)
+
+run_test    "DTLS client auth: required" \
+            "$P_SRV dtls=1 auth_mode=required" \
+            "$P_CLI dtls=1" \
+            0 \
+            -s "Verifying peer X.509 certificate... ok"
+
+run_test    "DTLS client auth: optional, client has no cert" \
+            "$P_SRV dtls=1 auth_mode=optional" \
+            "$P_CLI dtls=1 crt_file=none key_file=none" \
+            0 \
+            -s "! no client certificate sent"
+
+run_test    "DTLS client auth: optional, client has no cert" \
+            "$P_SRV dtls=1 auth_mode=none" \
+            "$P_CLI dtls=1 crt_file=none key_file=none debug_level=2" \
+            0 \
+            -c "skip write certificate$" \
+            -s "! no client certificate sent"
+
+# Tests for receiving fragmented handshake messages with DTLS
+
+requires_gnutls
+run_test    "DTLS reassembly: no fragmentation (gnutls server)" \
+            "$G_SRV -u --mtu 2048 -a" \
+            "$P_CLI dtls=1 debug_level=2" \
+            0 \
+            -C "found fragmented DTLS handshake message" \
+            -C "error"
+
+requires_gnutls
+run_test    "DTLS reassembly: some fragmentation (gnutls server)" \
+            "$G_SRV -u --mtu 512" \
+            "$P_CLI dtls=1 debug_level=2" \
+            0 \
+            -c "found fragmented DTLS handshake message" \
+            -C "error"
+
+requires_gnutls
+run_test    "DTLS reassembly: more fragmentation (gnutls server)" \
+            "$G_SRV -u --mtu 128" \
+            "$P_CLI dtls=1 debug_level=2" \
+            0 \
+            -c "found fragmented DTLS handshake message" \
+            -C "error"
+
+requires_gnutls
+run_test    "DTLS reassembly: more fragmentation, nbio (gnutls server)" \
+            "$G_SRV -u --mtu 128" \
+            "$P_CLI dtls=1 nbio=2 debug_level=2" \
+            0 \
+            -c "found fragmented DTLS handshake message" \
+            -C "error"
+
+requires_gnutls
+run_test    "DTLS reassembly: fragmentation, renego (gnutls server)" \
+            "$G_SRV -u --mtu 256" \
+            "$P_CLI debug_level=3 dtls=1 renegotiation=1 renegotiate=1" \
+            0 \
+            -c "found fragmented DTLS handshake message" \
+            -c "client hello, adding renegotiation extension" \
+            -c "found renegotiation extension" \
+            -c "=> renegotiate" \
+            -C "ssl_handshake returned" \
+            -C "error" \
+            -s "Extra-header:"
+
+requires_gnutls
+run_test    "DTLS reassembly: fragmentation, nbio, renego (gnutls server)" \
+            "$G_SRV -u --mtu 256" \
+            "$P_CLI debug_level=3 nbio=2 dtls=1 renegotiation=1 renegotiate=1" \
+            0 \
+            -c "found fragmented DTLS handshake message" \
+            -c "client hello, adding renegotiation extension" \
+            -c "found renegotiation extension" \
+            -c "=> renegotiate" \
+            -C "ssl_handshake returned" \
+            -C "error" \
+            -s "Extra-header:"
+
+run_test    "DTLS reassembly: no fragmentation (openssl server)" \
+            "$O_SRV -dtls1 -mtu 2048" \
+            "$P_CLI dtls=1 debug_level=2" \
+            0 \
+            -C "found fragmented DTLS handshake message" \
+            -C "error"
+
+run_test    "DTLS reassembly: some fragmentation (openssl server)" \
+            "$O_SRV -dtls1 -mtu 768" \
+            "$P_CLI dtls=1 debug_level=2" \
+            0 \
+            -c "found fragmented DTLS handshake message" \
+            -C "error"
+
+run_test    "DTLS reassembly: more fragmentation (openssl server)" \
+            "$O_SRV -dtls1 -mtu 256" \
+            "$P_CLI dtls=1 debug_level=2" \
+            0 \
+            -c "found fragmented DTLS handshake message" \
+            -C "error"
+
+run_test    "DTLS reassembly: fragmentation, nbio (openssl server)" \
+            "$O_SRV -dtls1 -mtu 256" \
+            "$P_CLI dtls=1 nbio=2 debug_level=2" \
+            0 \
+            -c "found fragmented DTLS handshake message" \
+            -C "error"
+
+# Tests for specific things with "unreliable" UDP connection
+
+not_with_valgrind # spurious resend due to timeout
+run_test    "DTLS proxy: reference" \
+            -p "$P_PXY" \
+            "$P_SRV dtls=1 debug_level=2" \
+            "$P_CLI dtls=1 debug_level=2" \
+            0 \
+            -C "replayed record" \
+            -S "replayed record" \
+            -C "record from another epoch" \
+            -S "record from another epoch" \
+            -C "discarding invalid record" \
+            -S "discarding invalid record" \
+            -S "resend" \
+            -s "Extra-header:" \
+            -c "HTTP/1.0 200 OK"
+
+not_with_valgrind # spurious resend due to timeout
+run_test    "DTLS proxy: duplicate every packet" \
+            -p "$P_PXY duplicate=1" \
+            "$P_SRV dtls=1 debug_level=2" \
+            "$P_CLI dtls=1 debug_level=2" \
+            0 \
+            -c "replayed record" \
+            -s "replayed record" \
+            -c "discarding invalid record" \
+            -s "discarding invalid record" \
+            -S "resend" \
+            -s "Extra-header:" \
+            -c "HTTP/1.0 200 OK"
+
+run_test    "DTLS proxy: duplicate every packet, server anti-replay off" \
+            -p "$P_PXY duplicate=1" \
+            "$P_SRV dtls=1 debug_level=2 anti_replay=0" \
+            "$P_CLI dtls=1 debug_level=2" \
+            0 \
+            -c "replayed record" \
+            -S "replayed record" \
+            -c "discarding invalid record" \
+            -s "discarding invalid record" \
+            -c "resend" \
+            -s "resend" \
+            -s "Extra-header:" \
+            -c "HTTP/1.0 200 OK"
+
+run_test    "DTLS proxy: inject invalid AD record, default badmac_limit" \
+            -p "$P_PXY bad_ad=1" \
+            "$P_SRV dtls=1 debug_level=1" \
+            "$P_CLI dtls=1 debug_level=1 read_timeout=100" \
+            0 \
+            -c "discarding invalid record (mac)" \
+            -s "discarding invalid record (mac)" \
+            -s "Extra-header:" \
+            -c "HTTP/1.0 200 OK" \
+            -S "too many records with bad MAC" \
+            -S "Verification of the message MAC failed"
+
+run_test    "DTLS proxy: inject invalid AD record, badmac_limit 1" \
+            -p "$P_PXY bad_ad=1" \
+            "$P_SRV dtls=1 debug_level=1 badmac_limit=1" \
+            "$P_CLI dtls=1 debug_level=1 read_timeout=100" \
+            1 \
+            -C "discarding invalid record (mac)" \
+            -S "discarding invalid record (mac)" \
+            -S "Extra-header:" \
+            -C "HTTP/1.0 200 OK" \
+            -s "too many records with bad MAC" \
+            -s "Verification of the message MAC failed"
+
+run_test    "DTLS proxy: inject invalid AD record, badmac_limit 2" \
+            -p "$P_PXY bad_ad=1" \
+            "$P_SRV dtls=1 debug_level=1 badmac_limit=2" \
+            "$P_CLI dtls=1 debug_level=1 read_timeout=100" \
+            0 \
+            -c "discarding invalid record (mac)" \
+            -s "discarding invalid record (mac)" \
+            -s "Extra-header:" \
+            -c "HTTP/1.0 200 OK" \
+            -S "too many records with bad MAC" \
+            -S "Verification of the message MAC failed"
+
+run_test    "DTLS proxy: inject invalid AD record, badmac_limit 2, exchanges 2"\
+            -p "$P_PXY bad_ad=1" \
+            "$P_SRV dtls=1 debug_level=1 badmac_limit=2 exchanges=2" \
+            "$P_CLI dtls=1 debug_level=1 read_timeout=100 exchanges=2" \
+            1 \
+            -c "discarding invalid record (mac)" \
+            -s "discarding invalid record (mac)" \
+            -s "Extra-header:" \
+            -c "HTTP/1.0 200 OK" \
+            -s "too many records with bad MAC" \
+            -s "Verification of the message MAC failed"
+
+run_test    "DTLS proxy: delay ChangeCipherSpec" \
+            -p "$P_PXY delay_ccs=1" \
+            "$P_SRV dtls=1 debug_level=1" \
+            "$P_CLI dtls=1 debug_level=1" \
+            0 \
+            -c "record from another epoch" \
+            -s "record from another epoch" \
+            -c "discarding invalid record" \
+            -s "discarding invalid record" \
+            -s "Extra-header:" \
+            -c "HTTP/1.0 200 OK"
+
+# Tests for "randomly unreliable connection": try a variety of flows and peers
+
+needs_more_time 2
+run_test    "DTLS proxy: 3d (drop, delay, duplicate), \"short\" PSK handshake" \
+            -p "$P_PXY drop=5 delay=5 duplicate=5" \
+            "$P_SRV dtls=1 hs_timeout=250-10000 tickets=0 auth_mode=none \
+             psk=abc123" \
+            "$P_CLI dtls=1 hs_timeout=250-10000 tickets=0 psk=abc123 \
+             force_ciphersuite=TLS-PSK-WITH-AES-128-CCM-8" \
+            0 \
+            -s "Extra-header:" \
+            -c "HTTP/1.0 200 OK"
+
+needs_more_time 2
+run_test    "DTLS proxy: 3d, \"short\" RSA handshake" \
+            -p "$P_PXY drop=5 delay=5 duplicate=5" \
+            "$P_SRV dtls=1 hs_timeout=250-10000 tickets=0 auth_mode=none" \
+            "$P_CLI dtls=1 hs_timeout=250-10000 tickets=0 \
+             force_ciphersuite=TLS-RSA-WITH-AES-128-CBC-SHA" \
+            0 \
+            -s "Extra-header:" \
+            -c "HTTP/1.0 200 OK"
+
+needs_more_time 2
+run_test    "DTLS proxy: 3d, \"short\" (no ticket, no cli_auth) FS handshake" \
+            -p "$P_PXY drop=5 delay=5 duplicate=5" \
+            "$P_SRV dtls=1 hs_timeout=250-10000 tickets=0 auth_mode=none" \
+            "$P_CLI dtls=1 hs_timeout=250-10000 tickets=0" \
+            0 \
+            -s "Extra-header:" \
+            -c "HTTP/1.0 200 OK"
+
+needs_more_time 2
+run_test    "DTLS proxy: 3d, FS, client auth" \
+            -p "$P_PXY drop=5 delay=5 duplicate=5" \
+            "$P_SRV dtls=1 hs_timeout=250-10000 tickets=0 auth_mode=required" \
+            "$P_CLI dtls=1 hs_timeout=250-10000 tickets=0" \
+            0 \
+            -s "Extra-header:" \
+            -c "HTTP/1.0 200 OK"
+
+needs_more_time 2
+run_test    "DTLS proxy: 3d, FS, ticket" \
+            -p "$P_PXY drop=5 delay=5 duplicate=5" \
+            "$P_SRV dtls=1 hs_timeout=250-10000 tickets=1 auth_mode=none" \
+            "$P_CLI dtls=1 hs_timeout=250-10000 tickets=1" \
+            0 \
+            -s "Extra-header:" \
+            -c "HTTP/1.0 200 OK"
+
+needs_more_time 2
+run_test    "DTLS proxy: 3d, max handshake (FS, ticket + client auth)" \
+            -p "$P_PXY drop=5 delay=5 duplicate=5" \
+            "$P_SRV dtls=1 hs_timeout=250-10000 tickets=1 auth_mode=required" \
+            "$P_CLI dtls=1 hs_timeout=250-10000 tickets=1" \
+            0 \
+            -s "Extra-header:" \
+            -c "HTTP/1.0 200 OK"
+
+needs_more_time 2
+run_test    "DTLS proxy: 3d, max handshake, nbio" \
+            -p "$P_PXY drop=5 delay=5 duplicate=5" \
+            "$P_SRV dtls=1 hs_timeout=250-10000 nbio=2 tickets=1 \
+             auth_mode=required" \
+            "$P_CLI dtls=1 hs_timeout=250-10000 nbio=2 tickets=1" \
+            0 \
+            -s "Extra-header:" \
+            -c "HTTP/1.0 200 OK"
+
+needs_more_time 4
+run_test    "DTLS proxy: 3d, min handshake, resumption" \
+            -p "$P_PXY drop=5 delay=5 duplicate=5" \
+            "$P_SRV dtls=1 hs_timeout=250-10000 tickets=0 auth_mode=none \
+             psk=abc123 debug_level=3" \
+            "$P_CLI dtls=1 hs_timeout=250-10000 tickets=0 psk=abc123 \
+             debug_level=3 reconnect=1 read_timeout=1000 max_resend=10 \
+             force_ciphersuite=TLS-PSK-WITH-AES-128-CCM-8" \
+            0 \
+            -s "a session has been resumed" \
+            -c "a session has been resumed" \
+            -s "Extra-header:" \
+            -c "HTTP/1.0 200 OK"
+
+needs_more_time 4
+run_test    "DTLS proxy: 3d, min handshake, resumption, nbio" \
+            -p "$P_PXY drop=5 delay=5 duplicate=5" \
+            "$P_SRV dtls=1 hs_timeout=250-10000 tickets=0 auth_mode=none \
+             psk=abc123 debug_level=3 nbio=2" \
+            "$P_CLI dtls=1 hs_timeout=250-10000 tickets=0 psk=abc123 \
+             debug_level=3 reconnect=1 read_timeout=1000 max_resend=10 \
+             force_ciphersuite=TLS-PSK-WITH-AES-128-CCM-8 nbio=2" \
+            0 \
+            -s "a session has been resumed" \
+            -c "a session has been resumed" \
+            -s "Extra-header:" \
+            -c "HTTP/1.0 200 OK"
+
+needs_more_time 4
+run_test    "DTLS proxy: 3d, min handshake, client-initiated renego" \
+            -p "$P_PXY drop=5 delay=5 duplicate=5" \
+            "$P_SRV dtls=1 hs_timeout=250-10000 tickets=0 auth_mode=none \
+             psk=abc123 renegotiation=1 debug_level=2" \
+            "$P_CLI dtls=1 hs_timeout=250-10000 tickets=0 psk=abc123 \
+             renegotiate=1 debug_level=2 \
+             force_ciphersuite=TLS-PSK-WITH-AES-128-CCM-8" \
+            0 \
+            -c "=> renegotiate" \
+            -s "=> renegotiate" \
+            -s "Extra-header:" \
+            -c "HTTP/1.0 200 OK"
+
+needs_more_time 4
+run_test    "DTLS proxy: 3d, min handshake, client-initiated renego, nbio" \
+            -p "$P_PXY drop=5 delay=5 duplicate=5" \
+            "$P_SRV dtls=1 hs_timeout=250-10000 tickets=0 auth_mode=none \
+             psk=abc123 renegotiation=1 debug_level=2" \
+            "$P_CLI dtls=1 hs_timeout=250-10000 tickets=0 psk=abc123 \
+             renegotiate=1 debug_level=2 \
+             force_ciphersuite=TLS-PSK-WITH-AES-128-CCM-8" \
+            0 \
+            -c "=> renegotiate" \
+            -s "=> renegotiate" \
+            -s "Extra-header:" \
+            -c "HTTP/1.0 200 OK"
+
+needs_more_time 4
+run_test    "DTLS proxy: 3d, min handshake, server-initiated renego" \
+            -p "$P_PXY drop=5 delay=5 duplicate=5" \
+            "$P_SRV dtls=1 hs_timeout=250-10000 tickets=0 auth_mode=none \
+             psk=abc123 renegotiate=1 renegotiation=1 exchanges=4 \
+             debug_level=2" \
+            "$P_CLI dtls=1 hs_timeout=250-10000 tickets=0 psk=abc123 \
+             renegotiation=1 exchanges=4 debug_level=2 \
+             force_ciphersuite=TLS-PSK-WITH-AES-128-CCM-8" \
+            0 \
+            -c "=> renegotiate" \
+            -s "=> renegotiate" \
+            -s "Extra-header:" \
+            -c "HTTP/1.0 200 OK"
+
+needs_more_time 4
+run_test    "DTLS proxy: 3d, min handshake, server-initiated renego, nbio" \
+            -p "$P_PXY drop=5 delay=5 duplicate=5" \
+            "$P_SRV dtls=1 hs_timeout=250-10000 tickets=0 auth_mode=none \
+             psk=abc123 renegotiate=1 renegotiation=1 exchanges=4 \
+             debug_level=2 nbio=2" \
+            "$P_CLI dtls=1 hs_timeout=250-10000 tickets=0 psk=abc123 \
+             renegotiation=1 exchanges=4 debug_level=2 nbio=2 \
+             force_ciphersuite=TLS-PSK-WITH-AES-128-CCM-8" \
+            0 \
+            -c "=> renegotiate" \
+            -s "=> renegotiate" \
+            -s "Extra-header:" \
+            -c "HTTP/1.0 200 OK"
+
+needs_more_time 6
+run_test    "DTLS proxy: 3d, openssl server" \
+            -p "$P_PXY drop=5 delay=5 duplicate=5 protect_hvr=1" \
+            "$O_SRV -dtls1 -mtu 2048" \
+            "$P_CLI dtls=1 hs_timeout=250-60000" \
+            0 \
+            -s "Extra-header:" \
+            -c "HTTP/1.0 200 OK"
+
+needs_more_time 6
+run_test    "DTLS proxy: 3d, openssl server, fragmentation" \
+            -p "$P_PXY drop=5 delay=5 duplicate=5 protect_hvr=1" \
+            "$O_SRV -dtls1 -mtu 768" \
+            "$P_CLI dtls=1 hs_timeout=250-60000" \
+            0 \
+            -s "Extra-header:" \
+            -c "HTTP/1.0 200 OK"
+
+needs_more_time 6
+run_test    "DTLS proxy: 3d, openssl server, fragmentation, nbio" \
+            -p "$P_PXY drop=5 delay=5 duplicate=5 protect_hvr=1" \
+            "$O_SRV -dtls1 -mtu 768" \
+            "$P_CLI dtls=1 hs_timeout=250-60000 nbio=2" \
+            0 \
+            -s "Extra-header:" \
+            -c "HTTP/1.0 200 OK"
+
+needs_more_time 6
+run_test    "DTLS proxy: 3d, gnutls server" \
+            -p "$P_PXY drop=5 delay=5 duplicate=5" \
+            "$G_SRV -u --mtu 2048 -a" \
+            "$P_CLI dtls=1 hs_timeout=250-60000" \
+            0 \
+            -s "Extra-header:" \
+            -c "Extra-header:"
+
+needs_more_time 6
+run_test    "DTLS proxy: 3d, gnutls server, fragmentation" \
+            -p "$P_PXY drop=5 delay=5 duplicate=5" \
+            "$G_SRV -u --mtu 512" \
+            "$P_CLI dtls=1 hs_timeout=250-60000" \
+            0 \
+            -s "Extra-header:" \
+            -c "Extra-header:"
+
+needs_more_time 6
+run_test    "DTLS proxy: 3d, gnutls server, fragmentation, nbio" \
+            -p "$P_PXY drop=5 delay=5 duplicate=5" \
+            "$G_SRV -u --mtu 512" \
+            "$P_CLI dtls=1 hs_timeout=250-60000 nbio=2" \
+            0 \
+            -s "Extra-header:" \
+            -c "Extra-header:"
 
 # Final report
 

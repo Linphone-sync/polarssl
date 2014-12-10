@@ -55,6 +55,7 @@ set(src
      sha256.c
      sha512.c
      ssl_cache.c
+     ssl_cookie.c
      ssl_ciphersuites.c
      ssl_cli.c
      ssl_srv.c
@@ -118,7 +119,7 @@ endif()
 
 if(USE_SHARED_POLARSSL_LIBRARY)
 	add_library(polarssl SHARED ${src})
-	set_target_properties(polarssl PROPERTIES VERSION 1.3.9 SOVERSION 7)
+	set_target_properties(polarssl PROPERTIES VERSION 1.4.0 SOVERSION 8)
 
 	target_link_libraries(polarssl ${libs})
 

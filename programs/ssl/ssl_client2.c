@@ -75,6 +75,8 @@ int main( int argc, char *argv[] )
 #define DFL_REQUEST_SIZE        -1
 #define DFL_DEBUG_LEVEL         0
 #define DFL_NBIO                0
+#define DFL_READ_TIMEOUT        0
+#define DFL_MAX_RESEND          0
 #define DFL_CA_FILE             ""
 #define DFL_CA_PATH             ""
 #define DFL_CRT_FILE            ""
@@ -95,6 +97,9 @@ int main( int argc, char *argv[] )
 #define DFL_RECO_DELAY          0
 #define DFL_TICKETS             SSL_SESSION_TICKETS_ENABLED
 #define DFL_ALPN_STRING         NULL
+#define DFL_TRANSPORT           SSL_TRANSPORT_STREAM
+#define DFL_HS_TO_MIN           0
+#define DFL_HS_TO_MAX           0
 
 #define GET_REQUEST "GET %s HTTP/1.0\r\nExtra-header: "
 #define GET_REQUEST_END "\r\n\r\n"
@@ -109,6 +114,8 @@ struct options
     int server_port;            /* port on which the ssl service runs       */
     int debug_level;            /* level of debugging                       */
     int nbio;                   /* should I/O be blocking?                  */
+    uint32_t read_timeout;      /* timeout on ssl_read() in milliseconds    */
+    int max_resend;             /* DTLS times to resend on read timeout     */
     const char *request_page;   /* page on server to request                */
     int request_size;           /* pad request with header to requested size */
     const char *ca_file;        /* the file with the CA certificate(s)      */
@@ -132,6 +139,9 @@ struct options
     int reco_delay;             /* delay in seconds before resuming session */
     int tickets;                /* enable / disable session tickets         */
     const char *alpn_string;    /* ALPN supported protocols                 */
+    int transport;              /* TLS or DTLS?                             */
+    uint32_t hs_to_min;         /* Initial value of DTLS handshake timer    */
+    uint32_t hs_to_max;         /* Max value of DTLS handshake timer        */
 } opt;
 
 static void my_debug( void *ctx, int level, const char *str )
@@ -284,6 +294,15 @@ static int my_verify( void *data, x509_crt *crt, int depth, int *flags )
 #define USAGE_ALPN ""
 #endif /* POLARSSL_SSL_ALPN */
 
+#if defined(POLARSSL_SSL_PROTO_DTLS)
+#define USAGE_DTLS \
+    "    dtls=%%d             default: 0 (TLS)\n"                           \
+    "    hs_timeout=%%d-%%d    default: (library default: 1000-60000)\n"    \
+    "                        range of DTLS handshake timeouts in millisecs\n"
+#else
+#define USAGE_DTLS ""
+#endif
+
 #define USAGE \
     "\n usage: ssl_client2 param=<>...\n"                   \
     "\n acceptable parameters:\n"                           \
@@ -296,6 +315,10 @@ static int my_verify( void *data, x509_crt *crt, int depth, int *flags )
     "    debug_level=%%d      default: 0 (disabled)\n"      \
     "    nbio=%%d             default: 0 (blocking I/O)\n"  \
     "                        options: 1 (non-blocking), 2 (added delays)\n" \
+    "    read_timeout=%%d     default: 0 (no timeout)\n"    \
+    "    max_resend=%%d       default: 0 (no resend on timeout)\n" \
+    "\n"                                                    \
+    USAGE_DTLS                                              \
     "\n"                                                    \
     "    auth_mode=%%s        default: \"optional\"\n"      \
     "                        options: none, optional, required\n" \
@@ -317,7 +340,7 @@ static int my_verify( void *data, x509_crt *crt, int depth, int *flags )
     "    min_version=%%s      default: \"\" (ssl3)\n"       \
     "    max_version=%%s      default: \"\" (tls1_2)\n"     \
     "    force_version=%%s    default: \"\" (none)\n"       \
-    "                        options: ssl3, tls1, tls1_1, tls1_2\n" \
+    "                        options: ssl3, tls1, tls1_1, tls1_2, dtls1, dtls1_2\n" \
     "    auth_mode=%%s        default: \"required\"\n"      \
     "                        options: none, optional, required\n" \
     "\n"                                                    \
@@ -326,7 +349,7 @@ static int my_verify( void *data, x509_crt *crt, int depth, int *flags )
 
 int main( int argc, char *argv[] )
 {
-    int ret = 0, len, tail_len, server_fd, i, written, frags;
+    int ret = 0, len, tail_len, server_fd, i, written, frags, retry_left;
     unsigned char buf[SSL_MAX_CONTENT_LEN + 1];
 #if defined(POLARSSL_KEY_EXCHANGE__SOME__PSK_ENABLED)
     unsigned char psk[POLARSSL_PSK_MAX_LEN];
@@ -391,6 +414,8 @@ int main( int argc, char *argv[] )
     opt.server_port         = DFL_SERVER_PORT;
     opt.debug_level         = DFL_DEBUG_LEVEL;
     opt.nbio                = DFL_NBIO;
+    opt.read_timeout        = DFL_READ_TIMEOUT;
+    opt.max_resend          = DFL_MAX_RESEND;
     opt.request_page        = DFL_REQUEST_PAGE;
     opt.request_size        = DFL_REQUEST_SIZE;
     opt.ca_file             = DFL_CA_FILE;
@@ -413,6 +438,9 @@ int main( int argc, char *argv[] )
     opt.reco_delay          = DFL_RECO_DELAY;
     opt.tickets             = DFL_TICKETS;
     opt.alpn_string         = DFL_ALPN_STRING;
+    opt.transport           = DFL_TRANSPORT;
+    opt.hs_to_min           = DFL_HS_TO_MIN;
+    opt.hs_to_max           = DFL_HS_TO_MAX;
 
     for( i = 1; i < argc; i++ )
     {
@@ -431,6 +459,16 @@ int main( int argc, char *argv[] )
             if( opt.server_port < 1 || opt.server_port > 65535 )
                 goto usage;
         }
+        else if( strcmp( p, "dtls" ) == 0 )
+        {
+            int t = atoi( q );
+            if( t == 0 )
+                opt.transport = SSL_TRANSPORT_STREAM;
+            else if( t == 1 )
+                opt.transport = SSL_TRANSPORT_DATAGRAM;
+            else
+                goto usage;
+        }
         else if( strcmp( p, "debug_level" ) == 0 )
         {
             opt.debug_level = atoi( q );
@@ -441,6 +479,14 @@ int main( int argc, char *argv[] )
         {
             opt.nbio = atoi( q );
             if( opt.nbio < 0 || opt.nbio > 2 )
+                goto usage;
+        }
+        else if( strcmp( p, "read_timeout" ) == 0 )
+            opt.read_timeout = atoi( q );
+        else if( strcmp( p, "max_resend" ) == 0 )
+        {
+            opt.max_resend = atoi( q );
+            if( opt.max_resend < 0 )
                 goto usage;
         }
         else if( strcmp( p, "request_page" ) == 0 )
@@ -525,9 +571,11 @@ int main( int argc, char *argv[] )
                 opt.min_version = SSL_MINOR_VERSION_0;
             else if( strcmp( q, "tls1" ) == 0 )
                 opt.min_version = SSL_MINOR_VERSION_1;
-            else if( strcmp( q, "tls1_1" ) == 0 )
+            else if( strcmp( q, "tls1_1" ) == 0 ||
+                     strcmp( q, "dtls1" ) == 0 )
                 opt.min_version = SSL_MINOR_VERSION_2;
-            else if( strcmp( q, "tls1_2" ) == 0 )
+            else if( strcmp( q, "tls1_2" ) == 0 ||
+                     strcmp( q, "dtls1_2" ) == 0 )
                 opt.min_version = SSL_MINOR_VERSION_3;
             else
                 goto usage;
@@ -538,9 +586,11 @@ int main( int argc, char *argv[] )
                 opt.max_version = SSL_MINOR_VERSION_0;
             else if( strcmp( q, "tls1" ) == 0 )
                 opt.max_version = SSL_MINOR_VERSION_1;
-            else if( strcmp( q, "tls1_1" ) == 0 )
+            else if( strcmp( q, "tls1_1" ) == 0 ||
+                     strcmp( q, "dtls1" ) == 0 )
                 opt.max_version = SSL_MINOR_VERSION_2;
-            else if( strcmp( q, "tls1_2" ) == 0 )
+            else if( strcmp( q, "tls1_2" ) == 0 ||
+                     strcmp( q, "dtls1_2" ) == 0 )
                 opt.max_version = SSL_MINOR_VERSION_3;
             else
                 goto usage;
@@ -566,6 +616,18 @@ int main( int argc, char *argv[] )
             {
                 opt.min_version = SSL_MINOR_VERSION_3;
                 opt.max_version = SSL_MINOR_VERSION_3;
+            }
+            else if( strcmp( q, "dtls1" ) == 0 )
+            {
+                opt.min_version = SSL_MINOR_VERSION_2;
+                opt.max_version = SSL_MINOR_VERSION_2;
+                opt.transport = SSL_TRANSPORT_DATAGRAM;
+            }
+            else if( strcmp( q, "dtls1_2" ) == 0 )
+            {
+                opt.min_version = SSL_MINOR_VERSION_3;
+                opt.max_version = SSL_MINOR_VERSION_3;
+                opt.transport = SSL_TRANSPORT_DATAGRAM;
             }
             else
                 goto usage;
@@ -600,6 +662,16 @@ int main( int argc, char *argv[] )
             if( opt.trunc_hmac < 0 || opt.trunc_hmac > 1 )
                 goto usage;
         }
+        else if( strcmp( p, "hs_timeout" ) == 0 )
+        {
+            if( ( p = strchr( q, '-' ) ) == NULL )
+                goto usage;
+            *p++ = '\0';
+            opt.hs_to_min = atoi( q );
+            opt.hs_to_max = atoi( p );
+            if( opt.hs_to_min == 0 || opt.hs_to_max < opt.hs_to_min )
+                goto usage;
+        }
         else
             goto usage;
     }
@@ -627,10 +699,22 @@ int main( int argc, char *argv[] )
             ret = 2;
             goto usage;
         }
-        if( opt.max_version > ciphersuite_info->max_minor_ver )
+
+        /* If the server selects a version that's not supported by
+         * this suite, then there will be no common ciphersuite... */
+        if( opt.max_version == -1 ||
+            opt.max_version > ciphersuite_info->max_minor_ver )
+        {
             opt.max_version = ciphersuite_info->max_minor_ver;
+        }
         if( opt.min_version < ciphersuite_info->min_minor_ver )
+        {
             opt.min_version = ciphersuite_info->min_minor_ver;
+            /* DTLS starts with TLS 1.1 */
+            if( opt.transport == SSL_TRANSPORT_DATAGRAM &&
+                opt.min_version < SSL_MINOR_VERSION_2 )
+                opt.min_version = SSL_MINOR_VERSION_2;
+        }
     }
 
 #if defined(POLARSSL_KEY_EXCHANGE__SOME__PSK_ENABLED)
@@ -820,12 +904,14 @@ int main( int argc, char *argv[] )
     if( opt.server_addr == NULL)
         opt.server_addr = opt.server_name;
 
-    printf( "  . Connecting to tcp/%s/%-4d...", opt.server_addr,
-                                                opt.server_port );
+    printf( "  . Connecting to %s/%s/%-4d...",
+            opt.transport == SSL_TRANSPORT_STREAM ? "tcp" : "udp",
+            opt.server_addr, opt.server_port );
     fflush( stdout );
 
-    if( ( ret = net_connect( &server_fd, opt.server_addr,
-                                         opt.server_port ) ) != 0 )
+    if( ( ret = net_connect( &server_fd, opt.server_addr, opt.server_port,
+                             opt.transport == SSL_TRANSPORT_STREAM ?
+                             NET_PROTO_TCP : NET_PROTO_UDP ) ) != 0 )
     {
         printf( " failed\n  ! net_connect returned -0x%x\n\n", -ret );
         goto exit;
@@ -855,8 +941,6 @@ int main( int argc, char *argv[] )
         goto exit;
     }
 
-    printf( " ok\n" );
-
 #if defined(POLARSSL_X509_CRT_PARSE_C)
     if( opt.debug_level > 0 )
         ssl_set_verify( &ssl, my_verify, NULL );
@@ -864,6 +948,17 @@ int main( int argc, char *argv[] )
 
     ssl_set_endpoint( &ssl, SSL_IS_CLIENT );
     ssl_set_authmode( &ssl, opt.auth_mode );
+
+#if defined(POLARSSL_SSL_PROTO_DTLS)
+    if( ( ret = ssl_set_transport( &ssl, opt.transport ) ) != 0 )
+    {
+        printf( " failed\n  ! selected transport is not available\n" );
+        goto exit;
+    }
+
+    if( opt.hs_to_min != DFL_HS_TO_MIN || opt.hs_to_max != DFL_HS_TO_MAX )
+        ssl_set_handshake_timeout( &ssl, opt.hs_to_min, opt.hs_to_max );
+#endif /* POLARSSL_SSL_PROTO_DTLS */
 
 #if defined(POLARSSL_SSL_MAX_FRAGMENT_LENGTH)
     if( ( ret = ssl_set_max_frag_len( &ssl, opt.mfl_code ) ) != 0 )
@@ -895,9 +990,16 @@ int main( int argc, char *argv[] )
     ssl_set_dbg( &ssl, my_debug, stdout );
 
     if( opt.nbio == 2 )
-        ssl_set_bio( &ssl, my_recv, &server_fd, my_send, &server_fd );
+        ssl_set_bio_timeout( &ssl, &server_fd, my_send, my_recv, NULL,
+                             opt.read_timeout );
     else
-        ssl_set_bio( &ssl, net_recv, &server_fd, net_send, &server_fd );
+        ssl_set_bio_timeout( &ssl, &server_fd, net_send, net_recv,
+#if defined(POLARSSL_HAVE_TIME)
+                             opt.nbio == 0 ? net_recv_timeout : NULL,
+#else
+                             NULL,
+#endif
+                             opt.read_timeout );
 
 #if defined(POLARSSL_SSL_SESSION_TICKETS)
     if( ( ret = ssl_set_session_tickets( &ssl, opt.tickets ) ) != 0 )
@@ -949,9 +1051,26 @@ int main( int argc, char *argv[] )
 #endif
 
     if( opt.min_version != -1 )
-        ssl_set_min_version( &ssl, SSL_MAJOR_VERSION_3, opt.min_version );
+    {
+        ret = ssl_set_min_version( &ssl, SSL_MAJOR_VERSION_3, opt.min_version );
+        if( ret != 0 )
+        {
+            printf( " failed\n  ! selected min_version is not available\n" );
+            goto exit;
+        }
+    }
+
     if( opt.max_version != -1 )
-        ssl_set_max_version( &ssl, SSL_MAJOR_VERSION_3, opt.max_version );
+    {
+        ret = ssl_set_max_version( &ssl, SSL_MAJOR_VERSION_3, opt.max_version );
+        if( ret != 0 )
+        {
+            printf( " failed\n  ! selected max_version is not available\n" );
+            goto exit;
+        }
+    }
+
+    printf( " ok\n" );
 
     /*
      * 4. Handshake
@@ -979,6 +1098,11 @@ int main( int argc, char *argv[] )
 
     printf( " ok\n    [ Protocol is %s ]\n    [ Ciphersuite is %s ]\n",
             ssl_get_version( &ssl ), ssl_get_ciphersuite( &ssl ) );
+
+    if( ( ret = ssl_get_record_expansion( &ssl ) ) >= 0 )
+        printf( "    [ Record expansion is %d ]\n", ret );
+    else
+        printf( "    [ Record expansion is unknown (compression) ]\n" );
 
 #if defined(POLARSSL_SSL_ALPN)
     if( opt.alpn_string != NULL )
@@ -1062,6 +1186,7 @@ int main( int argc, char *argv[] )
     /*
      * 6. Write the GET request
      */
+    retry_left = opt.max_resend;
 send_request:
     printf( "  > Write to server:" );
     fflush( stdout );
@@ -1092,16 +1217,36 @@ send_request:
         if( len >= 1 ) buf[len - 1] = '\n';
     }
 
-    for( written = 0, frags = 0; written < len; written += ret, frags++ )
+    if( opt.transport == SSL_TRANSPORT_STREAM )
     {
-        while( ( ret = ssl_write( &ssl, buf + written, len - written ) ) <= 0 )
+        for( written = 0, frags = 0; written < len; written += ret, frags++ )
         {
-            if( ret != POLARSSL_ERR_NET_WANT_READ && ret != POLARSSL_ERR_NET_WANT_WRITE )
+            while( ( ret = ssl_write( &ssl, buf + written, len - written ) )
+                           <= 0 )
             {
-                printf( " failed\n  ! ssl_write returned -0x%x\n\n", -ret );
-                goto exit;
+                if( ret != POLARSSL_ERR_NET_WANT_READ &&
+                    ret != POLARSSL_ERR_NET_WANT_WRITE )
+                {
+                    printf( " failed\n  ! ssl_write returned -0x%x\n\n", -ret );
+                    goto exit;
+                }
             }
         }
+    }
+    else /* Not stream, so datagram */
+    {
+        do ret = ssl_write( &ssl, buf, len );
+        while( ret == POLARSSL_ERR_NET_WANT_READ ||
+               ret == POLARSSL_ERR_NET_WANT_WRITE );
+
+        if( ret < 0 )
+        {
+            printf( " failed\n  ! ssl_write returned %d\n\n", ret );
+            goto exit;
+        }
+
+        frags = 1;
+        written = ret;
     }
 
     buf[written] = '\0';
@@ -1113,30 +1258,79 @@ send_request:
     printf( "  < Read from server:" );
     fflush( stdout );
 
-    do
+    /*
+     * TLS and DTLS need different reading styles (stream vs datagram)
+     */
+    if( opt.transport == SSL_TRANSPORT_STREAM )
+    {
+        do
+        {
+            len = sizeof( buf ) - 1;
+            memset( buf, 0, sizeof( buf ) );
+            ret = ssl_read( &ssl, buf, len );
+
+            if( ret == POLARSSL_ERR_NET_WANT_READ ||
+                ret == POLARSSL_ERR_NET_WANT_WRITE )
+                continue;
+
+            if( ret <= 0 )
+            {
+                switch( ret )
+                {
+                    case POLARSSL_ERR_SSL_PEER_CLOSE_NOTIFY:
+                        printf( " connection was closed gracefully\n" );
+                        ret = 0;
+                        goto close_notify;
+
+                    case 0:
+                    case POLARSSL_ERR_NET_CONN_RESET:
+                        printf( " connection was reset by peer\n" );
+                        ret = 0;
+                        goto reconnect;
+
+                    default:
+                        printf( " ssl_read returned -0x%x\n", -ret );
+                        goto exit;
+                }
+            }
+
+            len = ret;
+            buf[len] = '\0';
+            printf( " %d bytes read\n\n%s", len, (char *) buf );
+
+            /* End of message should be detected according to the syntax of the
+             * application protocol (eg HTTP), just use a dummy test here. */
+            if( ret > 0 && buf[len-1] == '\n' )
+            {
+                ret = 0;
+                break;
+            }
+        }
+        while( 1 );
+    }
+    else /* Not stream, so datagram */
     {
         len = sizeof( buf ) - 1;
         memset( buf, 0, sizeof( buf ) );
-        ret = ssl_read( &ssl, buf, len );
 
-        if( ret == POLARSSL_ERR_NET_WANT_READ ||
-            ret == POLARSSL_ERR_NET_WANT_WRITE )
-            continue;
+        do ret = ssl_read( &ssl, buf, len );
+        while( ret == POLARSSL_ERR_NET_WANT_READ ||
+               ret == POLARSSL_ERR_NET_WANT_WRITE );
 
         if( ret <= 0 )
         {
             switch( ret )
             {
+                case POLARSSL_ERR_NET_TIMEOUT:
+                    printf( " timeout\n" );
+                    if( retry_left-- > 0 )
+                        goto send_request;
+                    goto exit;
+
                 case POLARSSL_ERR_SSL_PEER_CLOSE_NOTIFY:
                     printf( " connection was closed gracefully\n" );
                     ret = 0;
                     goto close_notify;
-
-                case 0:
-                case POLARSSL_ERR_NET_CONN_RESET:
-                    printf( " connection was reset by peer\n" );
-                    ret = 0;
-                    goto reconnect;
 
                 default:
                     printf( " ssl_read returned -0x%x\n", -ret );
@@ -1147,16 +1341,8 @@ send_request:
         len = ret;
         buf[len] = '\0';
         printf( " %d bytes read\n\n%s", len, (char *) buf );
-
-        /* End of message should be detected according to the syntax of the
-         * application protocol (eg HTTP), just use a dummy test here. */
-        if( ret > 0 && buf[len-1] == '\n' )
-        {
-            ret = 0;
-            break;
-        }
+        ret = 0;
     }
-    while( 1 );
 
     /*
      * 7b. Continue doing data exchanges?
@@ -1170,24 +1356,13 @@ send_request:
 close_notify:
     printf( "  . Closing the connection..." );
 
-    while( ( ret = ssl_close_notify( &ssl ) ) < 0 )
-    {
-        if( ret == POLARSSL_ERR_NET_CONN_RESET )
-        {
-            printf( " ok (already closed by peer)\n" );
-            ret = 0;
-            goto reconnect;
-        }
+    /* No error checking, the connection might be closed already */
+    do
+        ret = ssl_close_notify( &ssl );
+    while( ret == POLARSSL_ERR_NET_WANT_WRITE );
+    ret = 0;
 
-        if( ret != POLARSSL_ERR_NET_WANT_READ &&
-            ret != POLARSSL_ERR_NET_WANT_WRITE )
-        {
-            printf( " failed\n  ! ssl_close_notify returned %d\n\n", ret );
-            goto reconnect;
-        }
-    }
-
-    printf( " ok\n" );
+    printf( " done\n" );
 
     /*
      * 9. Reconnect?
@@ -1219,10 +1394,22 @@ reconnect:
             goto exit;
         }
 
-        if( ( ret = net_connect( &server_fd, opt.server_name,
-                        opt.server_port ) ) != 0 )
+        if( ( ret = net_connect( &server_fd, opt.server_addr, opt.server_port,
+                                 opt.transport == SSL_TRANSPORT_STREAM ?
+                                 NET_PROTO_TCP : NET_PROTO_UDP ) ) != 0 )
         {
             printf( " failed\n  ! net_connect returned -0x%x\n\n", -ret );
+            goto exit;
+        }
+
+        if( opt.nbio > 0 )
+            ret = net_set_nonblock( server_fd );
+        else
+            ret = net_set_block( server_fd );
+        if( ret != 0 )
+        {
+            printf( " failed\n  ! net_set_(non)block() returned -0x%x\n\n",
+                    -ret );
             goto exit;
         }
 

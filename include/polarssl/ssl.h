@@ -76,6 +76,10 @@
 #include "zlib.h"
 #endif
 
+#if defined(POLARSSL_SSL_PROTO_DTLS)
+#include "timing.h"
+#endif
+
 #if defined(POLARSSL_HAVE_TIME)
 #include <time.h>
 #endif
@@ -146,6 +150,8 @@
 #define POLARSSL_ERR_SSL_INTERNAL_ERROR                    -0x6C00  /**< Internal error (eg, unexpected failure in lower-level module) */
 #define POLARSSL_ERR_SSL_COUNTER_WRAPPING                  -0x6B80  /**< A counter would wrap (eg, too many messages exchanged). */
 #define POLARSSL_ERR_SSL_WAITING_SERVER_HELLO_RENEGO       -0x6B00  /**< Unexpected message at ServerHello in renegotiation. */
+#define POLARSSL_ERR_SSL_HELLO_VERIFY_REQUIRED             -0x6A80  /**< DTLS client must retry for hello verification */
+#define POLARSSL_ERR_SSL_BUFFER_TOO_SMALL                  -0x6A00  /**< A buffer is too small to receive or write a message */
 
 /*
  * Various constants
@@ -155,6 +161,9 @@
 #define SSL_MINOR_VERSION_1             1   /*!< TLS v1.0 */
 #define SSL_MINOR_VERSION_2             2   /*!< TLS v1.1 */
 #define SSL_MINOR_VERSION_3             3   /*!< TLS v1.2 */
+
+#define SSL_TRANSPORT_STREAM            0   /*!< TLS      */
+#define SSL_TRANSPORT_DATAGRAM          1   /*!< DTLS     */
 
 /* Determine minimum supported version */
 #define SSL_MIN_MAJOR_VERSION           SSL_MAJOR_VERSION_3
@@ -215,7 +224,7 @@
 
 #define SSL_INITIAL_HANDSHAKE           0
 #define SSL_RENEGOTIATION               1   /* In progress */
-#define SSL_RENEGOTIATION_DONE          2   /* Done */
+#define SSL_RENEGOTIATION_DONE          2   /* Done or aborted */
 #define SSL_RENEGOTIATION_PENDING       3   /* Requested (server only) */
 
 #define SSL_LEGACY_RENEGOTIATION        0
@@ -223,6 +232,9 @@
 
 #define SSL_RENEGOTIATION_DISABLED      0
 #define SSL_RENEGOTIATION_ENABLED       1
+
+#define SSL_ANTI_REPLAY_DISABLED        0
+#define SSL_ANTI_REPLAY_ENABLED         1
 
 #define SSL_RENEGOTIATION_NOT_ENFORCED  -1
 #define SSL_RENEGO_MAX_RECORDS_DEFAULT  16
@@ -237,6 +249,26 @@
 
 #define SSL_SESSION_TICKETS_DISABLED     0
 #define SSL_SESSION_TICKETS_ENABLED      1
+
+/*
+ * DTLS retransmission states, see RFC 6347 4.2.4
+ *
+ * The SENDING state is merged in PREPARING for initial sends,
+ * but is distinct for resends.
+ *
+ * Note: initial state is wrong for server, but is not used anyway.
+ */
+#define SSL_RETRANS_PREPARING       0
+#define SSL_RETRANS_SENDING         1
+#define SSL_RETRANS_WAITING         2
+#define SSL_RETRANS_FINISHED        3
+
+/*
+ * Default range for DTLS retransmission timer value, in milliseconds.
+ * RFC 6347 4.2.4.1 says from 1 second to 60 seconds.
+ */
+#define SSL_DTLS_TIMEOUT_DFL_MIN    1000
+#define SSL_DTLS_TIMEOUT_DFL_MAX   60000
 
 /**
  * \name SECTION: Module settings
@@ -375,6 +407,7 @@
 #define SSL_HS_HELLO_REQUEST            0
 #define SSL_HS_CLIENT_HELLO             1
 #define SSL_HS_SERVER_HELLO             2
+#define SSL_HS_HELLO_VERIFY_REQUEST     3
 #define SSL_HS_NEW_SESSION_TICKET       4
 #define SSL_HS_CERTIFICATE             11
 #define SSL_HS_SERVER_KEY_EXCHANGE     12
@@ -492,6 +525,7 @@ typedef enum
     SSL_HANDSHAKE_WRAPUP,
     SSL_HANDSHAKE_OVER,
     SSL_SERVER_NEW_SESSION_TICKET,
+    SSL_SERVER_HELLO_VERIFY_REQUEST_SENT,
 }
 ssl_states;
 
@@ -504,6 +538,9 @@ typedef struct _ssl_ticket_keys ssl_ticket_keys;
 #endif
 #if defined(POLARSSL_X509_CRT_PARSE_C)
 typedef struct _ssl_key_cert ssl_key_cert;
+#endif
+#if defined(POLARSSL_SSL_PROTO_DTLS)
+typedef struct _ssl_flight_item ssl_flight_item;
 #endif
 
 /*
@@ -613,6 +650,28 @@ struct _ssl_handshake_params
     ssl_key_cert *sni_key_cert;         /*!<  key/cert list from SNI  */
 #endif
 #endif /* POLARSSL_X509_CRT_PARSE_C */
+#if defined(POLARSSL_SSL_PROTO_DTLS)
+    unsigned int out_msg_seq;           /*!<  Outgoing handshake sequence number */
+    unsigned int in_msg_seq;            /*!<  Incoming handshake sequence number */
+
+    unsigned char *verify_cookie;       /*!<  Cli: HelloVerifyRequest cookie
+                                              Srv: unused                    */
+    unsigned char verify_cookie_len;    /*!<  Cli: cookie length
+                                              Srv: flag for sending a cookie */
+
+    unsigned char *hs_msg;              /*!<  Reassembled handshake message  */
+
+    uint32_t retransmit_timeout;        /*!<  Current value of timeout       */
+    unsigned char retransmit_state;     /*!<  Retransmission state           */
+    ssl_flight_item *flight;            /*!<  Current outgoing flight        */
+    ssl_flight_item *cur_msg;           /*!<  Current message in flight      */
+    unsigned int in_flight_start_seq;   /*!<  Minimum message sequence in the
+                                              flight being received          */
+    ssl_transform *alt_transform_out;   /*!<  Alternative transform for
+                                              resending messages             */
+    unsigned char alt_out_ctr[8];       /*!<  Alternative record epoch/counter
+                                              for resending messages         */
+#endif
 
     /*
      * Checksum contexts
@@ -680,14 +739,30 @@ struct _ssl_key_cert
 };
 #endif /* POLARSSL_X509_CRT_PARSE_C */
 
+#if defined(POLARSSL_SSL_PROTO_DTLS)
+/*
+ * List of handshake messages kept around for resending
+ */
+struct _ssl_flight_item
+{
+    unsigned char *p;       /*!< message, including handshake headers   */
+    size_t len;             /*!< length of p                            */
+    unsigned char type;     /*!< type of the message: handshake or CCS  */
+    ssl_flight_item *next;  /*!< next handshake message(s)              */
+};
+#endif /* POLARSSL_SSL_PROTO_DTLS */
+
 struct _ssl_context
 {
     /*
      * Miscellaneous
      */
     int state;                  /*!< SSL handshake: current state     */
+    int transport;              /*!< Transport: stream or datagram    */
     int renegotiation;          /*!< Initial or renegotiation         */
-    int renego_records_seen;    /*!< Records since renego request     */
+    int renego_records_seen;    /*!< Records since renego request, or with DTLS,
+                                  number of retransmissions of request if
+                                  renego_max_records is < 0           */
 
     int major_ver;              /*!< equal to  SSL_MAJOR_VERSION_3    */
     int minor_ver;              /*!< either 0 (SSL3) or 1 (TLS1.0)    */
@@ -697,20 +772,27 @@ struct _ssl_context
     int min_major_ver;          /*!< min. major version used          */
     int min_minor_ver;          /*!< min. minor version used          */
 
+    uint32_t read_timeout;      /*!< timeout for ssl_read in milliseconds */
+
+#if defined(POLARSSL_SSL_DTLS_BADMAC_LIMIT)
+    unsigned badmac_limit;      /*!< limit of records with a bad MAC    */
+    unsigned badmac_seen;       /*!< records with a bad MAC received    */
+#endif
+
     /*
      * Callbacks (RNG, debug, I/O, verification)
      */
     int  (*f_rng)(void *, unsigned char *, size_t);
     void (*f_dbg)(void *, int, const char *);
-    int (*f_recv)(void *, unsigned char *, size_t);
     int (*f_send)(void *, const unsigned char *, size_t);
+    int (*f_recv)(void *, unsigned char *, size_t);
+    int (*f_recv_timeout)(void *, unsigned char *, size_t, uint32_t);
     int (*f_get_cache)(void *, ssl_session *);
     int (*f_set_cache)(void *, const ssl_session *);
 
     void *p_rng;                /*!< context for the RNG function     */
     void *p_dbg;                /*!< context for the debug function   */
-    void *p_recv;               /*!< context for reading operations   */
-    void *p_send;               /*!< context for writing operations   */
+    void *p_bio;                /*!< context for I/O operations   */
     void *p_get_cache;          /*!< context for cache retrieval      */
     void *p_set_cache;          /*!< context for cache store          */
     void *p_hw_data;            /*!< context for HW acceleration      */
@@ -750,28 +832,57 @@ struct _ssl_context
     ssl_transform *transform_negotiate; /*!<  transform params in negotiation */
 
     /*
+     * Timers
+     */
+#if defined(POLARSSL_SSL_PROTO_DTLS)
+    struct hr_time time_info;   /*!< timer context                      */
+    unsigned long time_limit;   /*!< limit for the running timer        */
+    uint32_t hs_timeout_min;    /*!< initial value of the handshake
+                                     retransmission timeout             */
+    uint32_t hs_timeout_max;    /*!< maximum value of the handshake
+                                     retransmission timeout             */
+#endif
+
+    /*
      * Record layer (incoming data)
      */
-    unsigned char *in_ctr;      /*!< 64-bit incoming message counter  */
-    unsigned char *in_hdr;      /*!< 5-byte record header (in_ctr+8)  */
-    unsigned char *in_iv;       /*!< ivlen-byte IV (in_hdr+5)         */
+    unsigned char *in_buf;      /*!< input buffer                     */
+    unsigned char *in_ctr;      /*!< 64-bit incoming message counter
+                                     TLS: maintained by us
+                                     DTLS: read from peer             */
+    unsigned char *in_hdr;      /*!< start of record header           */
+    unsigned char *in_len;      /*!< two-bytes message length field   */
+    unsigned char *in_iv;       /*!< ivlen-byte IV                    */
     unsigned char *in_msg;      /*!< message contents (in_iv+ivlen)   */
     unsigned char *in_offt;     /*!< read offset in application data  */
 
     int in_msgtype;             /*!< record header: message type      */
     size_t in_msglen;           /*!< record header: message length    */
     size_t in_left;             /*!< amount of data read so far       */
+#if defined(POLARSSL_SSL_PROTO_DTLS)
+    uint16_t in_epoch;          /*!< DTLS epoch for incoming records  */
+    size_t next_record_offset;  /*!< offset of the next record in datagram
+                                     (equal to in_left if none)       */
+#endif
+#if defined(POLARSSL_SSL_DTLS_ANTI_REPLAY)
+    uint64_t in_window_top;     /*!< last validated record seq_num    */
+    uint64_t in_window;         /*!< bitmask for replay detection     */
+    char anti_replay;           /*!< is anti-replay on?               */
+#endif
 
-    size_t in_hslen;            /*!< current handshake message length */
+    size_t in_hslen;            /*!< current handshake message length,
+                                     including the handshake header   */
     int nb_zero;                /*!< # of 0-length encrypted messages */
     int record_read;            /*!< record is already present        */
 
     /*
      * Record layer (outgoing data)
      */
+    unsigned char *out_buf;     /*!< output buffer                    */
     unsigned char *out_ctr;     /*!< 64-bit outgoing message counter  */
-    unsigned char *out_hdr;     /*!< 5-byte record header (out_ctr+8) */
-    unsigned char *out_iv;      /*!< ivlen-byte IV (out_hdr+5)        */
+    unsigned char *out_hdr;     /*!< start of record header           */
+    unsigned char *out_len;     /*!< two-bytes message length field   */
+    unsigned char *out_iv;      /*!< ivlen-byte IV                    */
     unsigned char *out_msg;     /*!< message contents (out_iv+ivlen)  */
 
     int out_msgtype;            /*!< record header: message type      */
@@ -854,6 +965,19 @@ struct _ssl_context
      */
     const char **alpn_list;     /*!<  ordered list of supported protocols   */
     const char *alpn_chosen;    /*!<  negotiated protocol                   */
+#endif
+
+    /*
+     * Information for DTLS hello verify
+     */
+#if defined(POLARSSL_SSL_DTLS_HELLO_VERIFY)
+    unsigned char  *cli_id;         /*!<  transport-level ID of the client  */
+    size_t          cli_id_len;     /*!<  length of cli_id                  */
+    int (*f_cookie_write)( void *, unsigned char **, unsigned char *,
+                           const unsigned char *, size_t );
+    int (*f_cookie_check)( void *, const unsigned char *, size_t,
+                           const unsigned char *, size_t );
+    void *p_cookie;                 /*!<  context for the cookie callbacks  */
 #endif
 
     /*
@@ -948,6 +1072,25 @@ int ssl_session_reset( ssl_context *ssl );
 void ssl_set_endpoint( ssl_context *ssl, int endpoint );
 
 /**
+ * \brief           Set the transport type (TLS or DTLS).
+ *                  Default: TLS
+ *
+ * \param ssl       SSL context
+ * \param transport transport type:
+ *                  SSL_TRANSPORT_STREAM for TLS,
+ *                  SSL_TRANSPORT_DATAGRAM for DTLS.
+ * \return          0 on success or POLARSSL_ERR_SSL_BAD_INPUT_DATA
+ *
+ * \note            If DTLS is selected and max and/or min version are less
+ *                  than TLS 1.1 (DTLS 1.0) they are upped to that value.
+ *
+ * \note            For DTLS, you must either provide a recv callback that
+ *                  doesn't block, or one that handles timeouts, see
+ *                  ssl_set_bio_timeout()
+ */
+int ssl_set_transport( ssl_context *ssl, int transport );
+
+/**
  * \brief          Set the certificate verification mode
  *
  * \param ssl      SSL context
@@ -1016,13 +1159,193 @@ void ssl_set_dbg( ssl_context *ssl,
  *
  * \param ssl      SSL context
  * \param f_recv   read callback
- * \param p_recv   read parameter
+ * \param p_recv   read parameter (must be equal to write parameter)
  * \param f_send   write callback
- * \param p_send   write parameter
+ * \param p_send   write parameter (must be equal to read parameter)
+ *
+ * \warning        It is required that p_recv == p_send. Otherwise, the first
+ *                 attempt at sending or receiving will result in a
+ *                 POLARSSL_ERR_SSL_BAD_INPUT_DATA error.
+ *
+ * \deprecated     Superseded by ssl_set_bio_timeout().
  */
 void ssl_set_bio( ssl_context *ssl,
         int (*f_recv)(void *, unsigned char *, size_t), void *p_recv,
         int (*f_send)(void *, const unsigned char *, size_t), void *p_send );
+
+/**
+ * \brief          Set the underlying BIO callbacks for write, read and
+ *                 read-with-timeout.
+ *
+ * \param ssl      SSL context
+ * \param p_bio    parameter (context) shared by BIO callbacks
+ * \param f_send   write callback
+ * \param f_recv   read callback
+ * \param f_recv_timeout read callback with timeout.
+ *                 The last argument of the callback is the timeout in seconds
+ * \param timeout  value of the ssl_read() timeout in milliseconds
+ *
+ * \note           f_recv_timeout is required for DTLS, unless f_recv performs
+ *                 non-blocking reads.
+ *
+ * \note           TODO: timeout not supported with TLS yet
+ */
+void ssl_set_bio_timeout( ssl_context *ssl,
+        void *p_bio,
+        int (*f_send)(void *, const unsigned char *, size_t),
+        int (*f_recv)(void *, unsigned char *, size_t),
+        int (*f_recv_timeout)(void *, unsigned char *, size_t, uint32_t),
+        uint32_t timeout );
+
+#if defined(POLARSSL_SSL_DTLS_HELLO_VERIFY)
+/**
+ * \brief          Set client's transport-level identification info.
+ *                 (Server only. DTLS only.)
+ *
+ *                 This is usually the IP address (and port), but could be
+ *                 anything identify the client depending on the underlying
+ *                 network stack. Used for HelloVerifyRequest with DTLS.
+ *                 This is *not* used to route the actual packets.
+ *
+ * \param ssl      SSL context
+ * \param info     Transport-level info identifying the client (eg IP + port)
+ * \param ilen     Length of info in bytes
+ *
+ * \note           An internal copy is made, so the info buffer can be reused.
+ *
+ * \return         0 on success,
+ *                 POLARSSL_ERR_SSL_BAD_INPUT_DATA if used on client,
+ *                 POLARSSL_ERR_SSL_MALLOC_FAILED if out of memory.
+ */
+int ssl_set_client_transport_id( ssl_context *ssl,
+                                 const unsigned char *info,
+                                 size_t ilen );
+
+/**
+ * \brief          Callback type: generate a cookie
+ *
+ * \param ctx      Context for the callback
+ * \param p        Buffer to write to,
+ *                 must be updated to point right after the cookie
+ * \param end      Pointer to one past the end of the output buffer
+ * \param info     Client ID info that was passed to
+ *                 \c ssl_set_client_transport_id()
+ * \param ilen     Length of info in bytes
+ *
+ * \return         The callback must return 0 on success,
+ *                 or a negative error code.
+ */
+typedef int ssl_cookie_write_t( void *ctx,
+                                unsigned char **p, unsigned char *end,
+                                const unsigned char *info, size_t ilen );
+
+/**
+ * \brief          Callback type: verify a cookie
+ *
+ * \param ctx      Context for the callback
+ * \param cookie   Cookie to verify
+ * \param clen     Length of cookie
+ * \param info     Client ID info that was passed to
+ *                 \c ssl_set_client_transport_id()
+ * \param ilen     Length of info in bytes
+ *
+ * \return         The callback must return 0 if cookie is valid,
+ *                 or a negative error code.
+ */
+typedef int ssl_cookie_check_t( void *ctx,
+                                const unsigned char *cookie, size_t clen,
+                                const unsigned char *info, size_t ilen );
+
+/**
+ * \brief           Register callbacks for DTLS cookies
+ *                  (Server only. DTLS only.)
+ *
+ *                  Default: dummy callbacks that fail, to force you to
+ *                  register working callbacks (and initialize their context).
+ *
+ *                  To disable HelloVerifyRequest, register NULL callbacks.
+ *
+ * \warning         Disabling hello verification allows your server to be used
+ *                  for amplification in DoS attacks against other hosts.
+ *                  Only disable if you known this can't happen in your
+ *                  particular environment.
+ *
+ * \param ssl               SSL context
+ * \param f_cookie_write    Cookie write callback
+ * \param f_cookie_check    Cookie check callback
+ * \param p_cookie          Context for both callbacks
+ */
+void ssl_set_dtls_cookies( ssl_context *ssl,
+                           ssl_cookie_write_t *f_cookie_write,
+                           ssl_cookie_check_t *f_cookie_check,
+                           void *p_cookie );
+#endif /* POLARSSL_SSL_DTLS_HELLO_VERIFY */
+
+#if defined(POLARSSL_SSL_DTLS_ANTI_REPLAY)
+/**
+ * \brief          Enable or disable anti-replay protection for DTLS.
+ *                 (DTLS only, no effect on TLS.)
+ *                 Default: enabled.
+ *
+ * \param ssl      SSL context
+ * \param mode     SSL_ANTI_REPLAY_ENABLED or SSL_ANTI_REPLAY_DISABLED.
+ *
+ * \warning        Disabling this is a security risk unless the application
+ *                 protocol handles duplicated packets in a safe way. You
+ *                 should not disable this without careful consideration.
+ *                 However, if your application already detects duplicated
+ *                 packets and needs information about them to adjust its
+ *                 transmission strategy, then you'll want to disable this.
+ */
+void ssl_set_dtls_anti_replay( ssl_context *ssl, char mode );
+#endif /* POLARSSL_SSL_DTLS_ANTI_REPLAY */
+
+#if defined(POLARSSL_SSL_DTLS_BADMAC_LIMIT)
+/**
+ * \brief          Set a limit on the number of records with a bad MAC
+ *                 before terminating the connection.
+ *                 (DTLS only, no effect on TLS.)
+ *                 Default: 0 (disabled).
+ *
+ * \param ssl      SSL context
+ * \param limit    Limit, or 0 to disable.
+ *
+ * \note           If the limit is N, then the connection is terminated when
+ *                 the Nth non-authentic record is seen.
+ *
+ * \note           Records with an invalid header are not counted, only the
+ *                 ones going through the authentication-decryption phase.
+ *
+ * \note           This is a security trade-off related to the fact that it's
+ *                 often relatively easy for an active attacker ot inject UDP
+ *                 datagrams. On one hand, setting a low limit here makes it
+ *                 easier for such an attacker to forcibly terminated a
+ *                 connection. On the other hand, a high limit or no limit
+ *                 might make us waste resources checking authentication on
+ *                 many bogus packets.
+ */
+void ssl_set_dtls_badmac_limit( ssl_context *ssl, unsigned limit );
+#endif /* POLARSSL_DTLS_BADMAC_LIMIT */
+
+#if defined(POLARSSL_SSL_PROTO_DTLS)
+/**
+ * \brief          Set retransmit timeout values for the DTLS handshale.
+ *                 (DTLS only, no effect on TLS.)
+ *
+ * \param ssl      SSL context
+ * \param min      Initial timeout value in milliseconds.
+ *                 Default: 1000 (1 second).
+ * \param max      Maximum timeout value in milliseconds.
+ *                 Default: 60000 (60 seconds).
+ *
+ * \note           Default values are from RFC 6347 section 4.2.4.1.
+ *
+ * \note           Higher values for initial timeout may increase average
+ *                 handshake latency. Lower values may increase the risk of
+ *                 network congestion by causing more retransmissions.
+ */
+void ssl_set_handshake_timeout( ssl_context *ssl, uint32_t min, uint32_t max );
+#endif /* POLARSSL_SSL_PROTO_DTLS */
 
 /**
  * \brief          Set the session cache callbacks (server-side only)
@@ -1107,6 +1430,9 @@ void ssl_set_ciphersuites( ssl_context *ssl, const int *ciphersuites );
  * \param minor         Minor version number (SSL_MINOR_VERSION_0,
  *                      SSL_MINOR_VERSION_1 and SSL_MINOR_VERSION_2,
  *                      SSL_MINOR_VERSION_3 supported)
+ *
+ * \note                With DTLS, use SSL_MINOR_VERSION_2 for DTLS 1.0
+ *                      and SSL_MINOR_VERSION_3 for DTLS 1.2
  */
 void ssl_set_ciphersuites_for_version( ssl_context *ssl,
                                        const int *ciphersuites,
@@ -1356,32 +1682,35 @@ const char *ssl_get_alpn_protocol( const ssl_context *ssl );
  *                 (Default: SSL_MAX_MAJOR_VERSION, SSL_MAX_MINOR_VERSION)
  *
  *                 Note: This ignores ciphersuites from 'higher' versions.
- *                 Note: Input outside of the SSL_MAX_XXXXX_VERSION and
- *                       SSL_MIN_XXXXX_VERSION range is ignored.
  *
  * \param ssl      SSL context
  * \param major    Major version number (only SSL_MAJOR_VERSION_3 supported)
  * \param minor    Minor version number (SSL_MINOR_VERSION_0,
  *                 SSL_MINOR_VERSION_1 and SSL_MINOR_VERSION_2,
  *                 SSL_MINOR_VERSION_3 supported)
+ * \return         0 on success or POLARSSL_ERR_SSL_BAD_INPUT_DATA
+ *
+ * \note           With DTLS, use SSL_MINOR_VERSION_2 for DTLS 1.0 and
+ *                 SSL_MINOR_VERSION_3 for DTLS 1.2
  */
-void ssl_set_max_version( ssl_context *ssl, int major, int minor );
+int ssl_set_max_version( ssl_context *ssl, int major, int minor );
 
 
 /**
  * \brief          Set the minimum accepted SSL/TLS protocol version
  *                 (Default: SSL_MIN_MAJOR_VERSION, SSL_MIN_MINOR_VERSION)
  *
- *                 Note: Input outside of the SSL_MAX_XXXXX_VERSION and
- *                       SSL_MIN_XXXXX_VERSION range is ignored.
- *
  * \param ssl      SSL context
  * \param major    Major version number (only SSL_MAJOR_VERSION_3 supported)
  * \param minor    Minor version number (SSL_MINOR_VERSION_0,
  *                 SSL_MINOR_VERSION_1 and SSL_MINOR_VERSION_2,
  *                 SSL_MINOR_VERSION_3 supported)
+ * \return         0 on success or POLARSSL_ERR_SSL_BAD_INPUT_DATA
+ *
+ * \note           With DTLS, use SSL_MINOR_VERSION_2 for DTLS 1.0 and
+ *                 SSL_MINOR_VERSION_3 for DTLS 1.2
  */
-void ssl_set_min_version( ssl_context *ssl, int major, int minor );
+int ssl_set_min_version( ssl_context *ssl, int major, int minor );
 
 #if defined(POLARSSL_SSL_MAX_FRAGMENT_LENGTH)
 /**
@@ -1491,7 +1820,7 @@ void ssl_set_renegotiation( ssl_context *ssl, int renegotiation );
 void ssl_legacy_renegotiation( ssl_context *ssl, int allow_legacy );
 
 /**
- * \brief          Enforce server-requested renegotiation.
+ * \brief          Enforce renegotiation requests.
  *                 (Default: enforced, max_records = 16)
  *
  *                 When we request a renegotiation, the peer can comply or
@@ -1506,6 +1835,15 @@ void ssl_legacy_renegotiation( ssl_context *ssl, int allow_legacy );
  *
  *                 The optimal value is highly dependent on the specific usage
  *                 scenario.
+ *
+ * \note           With DTLS and server-initiated renegotiation, the
+ *                 HelloRequest is retransmited every time ssl_read() times
+ *                 out or receives Application Data, until:
+ *                 - max_records records have beens seen, if it is >= 0, or
+ *                 - the number of retransmits that would happen during an
+ *                 actual handshake has been reached.
+ *                 Please remember the request might be lost a few times
+ *                 if you consider setting max_records to a really low value.
  *
  * \warning        On client, the grace period can only happen during
  *                 ssl_read(), as opposed to ssl_write() and ssl_renegotiate()
@@ -1559,6 +1897,18 @@ const char *ssl_get_ciphersuite( const ssl_context *ssl );
  * \return         a string containing the SSL version
  */
 const char *ssl_get_version( const ssl_context *ssl );
+
+/**
+ * \brief          Return the (maximum) number of bytes added by the record
+ *                 layer: header + encryption/MAC overhead (inc. padding)
+ *
+ * \param ssl      SSL context
+ *
+ * \return         Current maximum record expansion in bytes, or
+ *                 POLARSSL_ERR_FEATURE_UNAVAILABLE if compression is enabled,
+ *                 which makes expansion much less predictable
+ */
+int ssl_get_record_expansion( const ssl_context *ssl );
 
 #if defined(POLARSSL_X509_CRT_PARSE_C)
 /**
@@ -1657,6 +2007,12 @@ int ssl_read( ssl_context *ssl, unsigned char *buf, size_t len );
  * \note           When this function returns POLARSSL_ERR_NET_WANT_WRITE,
  *                 it must be called later with the *same* arguments,
  *                 until it returns a positive value.
+ *
+ * \note           When DTLS is in use, and a maximum fragment length was
+ *                 either set with \c ssl_set_max_frag_len() or negotiated by
+ *                 the peer, len must not not be greater than the maximum
+ *                 fragment length, or POLARSSL_ERR_SSL_BAD_INPUT_DATA is
+ *                 returned.
  */
 int ssl_write( ssl_context *ssl, const unsigned char *buf, size_t len );
 
@@ -1727,13 +2083,10 @@ void ssl_handshake_wrapup( ssl_context *ssl );
 
 int ssl_send_fatal_handshake_failure( ssl_context *ssl );
 
+void ssl_reset_checksum( ssl_context *ssl );
 int ssl_derive_keys( ssl_context *ssl );
 
 int ssl_read_record( ssl_context *ssl );
-/**
- * \return         0 if successful, POLARSSL_ERR_SSL_CONN_EOF on EOF or
- *                 another negative error code.
- */
 int ssl_fetch_input( ssl_context *ssl, size_t nb_want );
 
 int ssl_write_record( ssl_context *ssl );
@@ -1792,6 +2145,45 @@ int ssl_check_cert_usage( const x509_crt *cert,
                           const ssl_ciphersuite_t *ciphersuite,
                           int cert_endpoint );
 #endif /* POLARSSL_X509_CRT_PARSE_C */
+
+void ssl_write_version( int major, int minor, int transport,
+                        unsigned char ver[2] );
+void ssl_read_version( int *major, int *minor, int transport,
+                       const unsigned char ver[2] );
+
+static inline size_t ssl_hdr_len( const ssl_context *ssl )
+{
+#if defined(POLARSSL_SSL_PROTO_DTLS)
+    if( ssl->transport == SSL_TRANSPORT_DATAGRAM )
+        return( 13 );
+#else
+    ((void) ssl);
+#endif
+    return( 5 );
+}
+
+static inline size_t ssl_hs_hdr_len( const ssl_context *ssl )
+{
+#if defined(POLARSSL_SSL_PROTO_DTLS)
+    if( ssl->transport == SSL_TRANSPORT_DATAGRAM )
+        return( 12 );
+#else
+    ((void) ssl);
+#endif
+    return( 4 );
+}
+
+#if defined(POLARSSL_SSL_PROTO_DTLS)
+void ssl_send_flight_completed( ssl_context *ssl );
+void ssl_recv_flight_completed( ssl_context *ssl );
+int ssl_resend( ssl_context *ssl );
+#endif
+
+/* Visible for testing purposes only */
+#if defined(POLARSSL_SSL_DTLS_ANTI_REPLAY)
+int ssl_dtls_replay_check( ssl_context *ssl );
+void ssl_dtls_replay_update( ssl_context *ssl );
+#endif
 
 /* constant-time buffer comparison */
 static inline int safer_memcmp( const void *a, const void *b, size_t n )

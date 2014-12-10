@@ -452,6 +452,10 @@ void polarssl_strerror( int ret, char *buf, size_t buflen )
             snprintf( buf, buflen, "SSL - A counter would wrap (eg, too many messages exchanged)" );
         if( use_ret == -(POLARSSL_ERR_SSL_WAITING_SERVER_HELLO_RENEGO) )
             snprintf( buf, buflen, "SSL - Unexpected message at ServerHello in renegotiation" );
+        if( use_ret == -(POLARSSL_ERR_SSL_HELLO_VERIFY_REQUIRED) )
+            snprintf( buf, buflen, "SSL - DTLS client must retry for hello verification" );
+        if( use_ret == -(POLARSSL_ERR_SSL_BUFFER_TOO_SMALL) )
+            snprintf( buf, buflen, "SSL - A buffer is too small to receive or write a message" );
 #endif /* POLARSSL_SSL_TLS_C */
 
 #if defined(POLARSSL_X509_USE_C) || defined(POLARSSL_X509_CREATE_C)
@@ -654,8 +658,6 @@ void polarssl_strerror( int ret, char *buf, size_t buflen )
 #endif /* POLARSSL_MD5_C */
 
 #if defined(POLARSSL_NET_C)
-    if( use_ret == -(POLARSSL_ERR_NET_UNKNOWN_HOST) )
-        snprintf( buf, buflen, "NET - Failed to get an IP address for the given hostname" );
     if( use_ret == -(POLARSSL_ERR_NET_SOCKET_FAILED) )
         snprintf( buf, buflen, "NET - Failed to open a socket" );
     if( use_ret == -(POLARSSL_ERR_NET_CONNECT_FAILED) )
@@ -676,6 +678,10 @@ void polarssl_strerror( int ret, char *buf, size_t buflen )
         snprintf( buf, buflen, "NET - Connection requires a read call" );
     if( use_ret == -(POLARSSL_ERR_NET_WANT_WRITE) )
         snprintf( buf, buflen, "NET - Connection requires a write call" );
+    if( use_ret == -(POLARSSL_ERR_NET_UNKNOWN_HOST) )
+        snprintf( buf, buflen, "NET - Failed to get an IP address for the given hostname" );
+    if( use_ret == -(POLARSSL_ERR_NET_TIMEOUT) )
+        snprintf( buf, buflen, "NET - The operation timed out" );
 #endif /* POLARSSL_NET_C */
 
 #if defined(POLARSSL_OID_C)

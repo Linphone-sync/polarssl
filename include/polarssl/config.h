@@ -877,26 +877,46 @@
 /**
  * \def POLARSSL_SSL_PROTO_TLS1_1
  *
- * Enable support for TLS 1.1.
+ * Enable support for TLS 1.1 (and DTLS 1.0 if DTLS is enabled).
  *
  * Requires: POLARSSL_MD5_C
  *           POLARSSL_SHA1_C
  *
- * Comment this macro to disable support for TLS 1.1
+ * Comment this macro to disable support for TLS 1.1 / DTLS 1.0
  */
 #define POLARSSL_SSL_PROTO_TLS1_1
 
 /**
  * \def POLARSSL_SSL_PROTO_TLS1_2
  *
- * Enable support for TLS 1.2.
+ * Enable support for TLS 1.2 (and DTLS 1.2 if DTLS is enabled).
  *
  * Requires: POLARSSL_SHA1_C or POLARSSL_SHA256_C or POLARSSL_SHA512_C
  *           (Depends on ciphersuites)
  *
- * Comment this macro to disable support for TLS 1.2
+ * Comment this macro to disable support for TLS 1.2 / DTLS 1.2
  */
 #define POLARSSL_SSL_PROTO_TLS1_2
+
+/**
+ * \def POLARSSL_SSL_PROTO_DTLS
+ *
+ * Enable support for DTLS (all available versions).
+ *
+ * Enable this and POLARSSL_SSL_PROTO_TLS1_1 to enable DTLS 1.0,
+ * and/or this and POLARSSL_SSL_PROTO_TLS1_2 to enable DTLS 1.2.
+ *
+ * Requires: POLARSSL_SSL_PROTO_TLS1_1
+ *        or POLARSSL_SSL_PROTO_TLS1_2
+ *           POLARSSL_TIMING_C
+ *
+ * \note Dependency on TIMING_C may be replaced by something more flexible
+ * (callbacks or abstraction layer in the next major version). Please contact
+ * us if you're having issues with this dependency.
+ *
+ * Comment this macro to disable support for DTLS
+ */
+#define POLARSSL_SSL_PROTO_DTLS
 
 /**
  * \def POLARSSL_SSL_ALPN
@@ -907,6 +927,51 @@
  * Comment this macro to disable support for ALPN.
  */
 #define POLARSSL_SSL_ALPN
+
+/**
+ * \def POLARSSL_SSL_DTLS_ANTI_REPLAY
+ *
+ * Enable support for the anti-replay mechanism in DTLS.
+ *
+ * Requires: POLARSSL_SSL_TLS_C
+ *           POLARSSL_SSL_PROTO_DTLS
+ *
+ * \warning Disabling this is often a security risk!
+ * See ssl_set_dtls_anti_replay() for details.
+ *
+ * Comment this to disable anti-replay in DTLS.
+ */
+#define POLARSSL_SSL_DTLS_ANTI_REPLAY
+
+/**
+ * \def POLARSSL_SSL_DTLS_HELLO_VERIFY
+ *
+ * Enable support for HelloVerifyRequest on DTLS servers.
+ *
+ * This feature is highly recommended to prevent DTLS servers being used as
+ * amplifiers in DoS attacks against other hosts. It should always be enabled
+ * unless you know for sure amplification cannot be a problem in the
+ * environment in which your server operates.
+ *
+ * \warning Disabling this can ba a security risk! (see above)
+ *
+ * Requires: POLARSSL_SSL_SRV_C
+ *           POLARSSL_SSL_PROTO_DTLS
+ *
+ * Comment this to disable support for HelloVerifyRequest.
+ */
+#define POLARSSL_SSL_DTLS_HELLO_VERIFY
+
+/**
+ * \def POLARSSL_SSL_DTLS_BADMAC_LIMIT
+ *
+ * Enable support for a limit of records with bad MAC.
+ *
+ * See ssl_set_dtls_badmac_limit().
+ *
+ * Requires: POLARSSL_SSL_PROTO_DTLS
+ */
+#define POLARSSL_SSL_DTLS_BADMAC_LIMIT
 
 /**
  * \def POLARSSL_SSL_SESSION_TICKETS
@@ -1054,6 +1119,8 @@
  * \warning TLS-level compression MAY REDUCE SECURITY! See for example the
  * CRIME attack. Before enabling this option, you should examine with care if
  * CRIME or similar exploits may be a applicable to your use case.
+ *
+ * \note Currently compression can't bu used with DTLS.
  *
  * Used in: library/ssl_tls.c
  *          library/ssl_cli.c
@@ -1897,6 +1964,18 @@
 #define POLARSSL_SSL_CACHE_C
 
 /**
+ * \def POLARSSL_SSL_COOKIE_C
+ *
+ * Enable basic implementation of DTLS cookies for hello verification.
+ *
+ * Module:  library/ssl_cookie.c
+ * Caller:
+ *
+ * Requires: POLARSSL_SSL_DTLS_HELLO_VERIFY
+ */
+#define POLARSSL_SSL_COOKIE_C
+
+/**
  * \def POLARSSL_SSL_CLI_C
  *
  * Enable the SSL/TLS client code.
@@ -2155,6 +2234,7 @@
 //#define SSL_MAX_CONTENT_LEN             16384 /**< Size of the input / output buffer */
 //#define SSL_DEFAULT_TICKET_LIFETIME     86400 /**< Lifetime of session tickets (if enabled) */
 //#define POLARSSL_PSK_MAX_LEN               32 /**< Max size of TLS pre-shared keys, in bytes (default 256 bits) */
+//#define POLARSSL_SSL_COOKIE_TIMEOUT        60 /**< Default expiration delay of DTLS cookies, in seconds if HAVE_TIME, or in number of cookies issued */
 
 /**
  * Complete list of ciphersuites to use, in order of preference.
