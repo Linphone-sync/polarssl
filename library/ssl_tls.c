@@ -381,7 +381,7 @@ static int tls_prf_sha384( const unsigned char *secret, size_t slen,
 {
     size_t nb;
     size_t i, j, k;
-    unsigned char tmp[128];
+    unsigned char tmp[144];
     unsigned char h_i[48];
 
     if( sizeof( tmp ) < 48 + strlen( label ) + rlen )
@@ -404,7 +404,7 @@ static int tls_prf_sha384( const unsigned char *secret, size_t slen,
 
         k = ( i + 48 > dlen ) ? dlen % 48 : 48;
 
-        for( j = 0; j < k; j++ )
+        for( j = 0; j < k; j++ ) 
             dstbuf[i + j]  = h_i[j];
     }
 
@@ -581,6 +581,23 @@ int ssl_derive_keys( ssl_context *ssl )
     SSL_DEBUG_BUF( 3, "master secret", session->master, 48 );
     SSL_DEBUG_BUF( 4, "random bytes", handshake->randbytes, 64 );
     SSL_DEBUG_BUF( 4, "key block", keyblk, 256 );
+
+#if defined(POLARSSL_SSL_PROTO_DTLS)
+	/* check if we have a chosen srtp protection profile */
+	if (ssl->chosen_dtls_srtp_profile != SRTP_UNSET_PROFILE) {
+		/* derive key material for srtp session RFC5764 section 4.2 */
+		/* master key and master salt are respectively 128 bits and 112 bits for all currently available modes :
+		 * SRTP_AES128_CM_HMAC_SHA1_80, SRTP_AES128_CM_HMAC_SHA1_32
+		 * SRTP_NULL_HMAC_SHA1_80, SRTP_NULL_HMAC_SHA1_32
+		 * So we must export 2*(128 + 112) = 480 bytes
+		 */
+		ssl->dtls_srtp_keys_len = 480;
+
+		ssl->dtls_srtp_keys = (unsigned char *)polarssl_malloc(ssl->dtls_srtp_keys_len);
+		handshake->tls_prf( session->master, 48, "EXTRACTOR-dtls_srtp",
+                        handshake->randbytes, 64, ssl->dtls_srtp_keys, ssl->dtls_srtp_keys_len );
+	}
+#endif /* POLARSSL_SSL_PROTO_DTLS */
 
     polarssl_zeroize( handshake->randbytes, sizeof( handshake->randbytes ) );
 
@@ -4746,6 +4763,11 @@ int ssl_init( ssl_context *ssl )
 #if defined(POLARSSL_SSL_PROTO_DTLS)
     ssl->hs_timeout_min = SSL_DTLS_TIMEOUT_DFL_MIN;
     ssl->hs_timeout_max = SSL_DTLS_TIMEOUT_DFL_MAX;
+	ssl->dtls_srtp_profiles_list = NULL;
+	ssl->dtls_srtp_profiles_list_len = 0;
+	ssl->chosen_dtls_srtp_profile = SRTP_UNSET_PROFILE;
+	ssl->dtls_srtp_keys = NULL;
+	ssl->dtls_srtp_keys_len = 0;
 #endif
 
     if( ( ret = ssl_handshake_init( ssl ) ) != 0 )
@@ -5367,6 +5389,48 @@ const char *ssl_get_alpn_protocol( const ssl_context *ssl )
     return( ssl->alpn_chosen );
 }
 #endif /* POLARSSL_SSL_ALPN */
+
+#if defined(POLARSSL_SSL_PROTO_DTLS)
+int ssl_set_dtls_srtp_protection_profiles( ssl_context *ssl, const enum DTLS_SRTP_protection_profiles *profiles, size_t profiles_number)
+{
+	size_t i;
+	/* check in put validity : must be a list of profiles from enumeration */
+	/* maximum length is 4 as only 4 protection profiles are defined */
+	if (profiles_number>4) {
+			return POLARSSL_ERR_SSL_BAD_INPUT_DATA;
+	}
+
+	polarssl_free(ssl->dtls_srtp_profiles_list);
+	ssl->dtls_srtp_profiles_list = (enum DTLS_SRTP_protection_profiles *)polarssl_malloc(profiles_number*sizeof(enum DTLS_SRTP_protection_profiles));
+
+	for (i=0; i<profiles_number; i++) {
+		switch (profiles[i]) {
+			case SRTP_AES128_CM_HMAC_SHA1_80:
+			case SRTP_AES128_CM_HMAC_SHA1_32:
+			case SRTP_NULL_HMAC_SHA1_80:
+			case SRTP_NULL_HMAC_SHA1_32:
+    			ssl->dtls_srtp_profiles_list[i] = profiles[i];
+				break;
+			default:
+				free(ssl->dtls_srtp_profiles_list);
+				ssl->dtls_srtp_profiles_list = NULL;
+				ssl->dtls_srtp_profiles_list_len = 0;
+				return POLARSSL_ERR_SSL_BAD_INPUT_DATA;
+		}
+	}
+
+	/* assign array length */
+	ssl->dtls_srtp_profiles_list_len = profiles_number;
+
+    return( 0 );
+}
+
+enum DTLS_SRTP_protection_profiles ssl_get_dtls_srtp_protection_profile( const ssl_context *ssl)
+{
+	return( ssl->chosen_dtls_srtp_profile);
+}
+
+#endif /* POLARSSL_SSL_PROTO_DTLS */
 
 static int ssl_check_version( const ssl_context *ssl, int major, int minor )
 {
@@ -6308,6 +6372,11 @@ void ssl_free( ssl_context *ssl )
 
 #if defined(POLARSSL_SSL_DTLS_HELLO_VERIFY)
     polarssl_free( ssl->cli_id );
+#endif
+
+#if defined (POLARSSL_SSL_PROTO_DTLS)
+	polarssl_free( ssl->dtls_srtp_profiles_list );
+	polarssl_free( ssl->dtls_srtp_keys );
 #endif
 
     SSL_DEBUG_MSG( 2, ( "<= free" ) );

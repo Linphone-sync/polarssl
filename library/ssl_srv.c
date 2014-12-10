@@ -773,6 +773,77 @@ static int ssl_parse_alpn_ext( ssl_context *ssl,
 }
 #endif /* POLARSSL_SSL_ALPN */
 
+#if defined(POLARSSL_SSL_PROTO_DTLS)
+static int ssl_parse_use_srtp_ext( ssl_context *ssl,
+                               const unsigned char *buf, size_t len )
+{
+    enum DTLS_SRTP_protection_profiles client_protection = SRTP_UNSET_PROFILE;
+	size_t i,j;
+
+    /* If use_srtp is not configured, just ignore the extension */
+    if( ( ssl->dtls_srtp_profiles_list == NULL ) || ( ssl->dtls_srtp_profiles_list_len == 0 ) )
+        return( 0 );
+
+	/* RFC5764 section 4.1.1
+	 * uint8 SRTPProtectionProfile[2];
+	 * 
+	 * struct {
+     *   SRTPProtectionProfiles SRTPProtectionProfiles;
+     *   opaque srtp_mki<0..255>;
+     * } UseSRTPData;
+
+     * SRTPProtectionProfile SRTPProtectionProfiles<2..2^16-1>;
+	 *
+	 * Note: srtp_mki is not supported
+     */
+
+    /* Min length is 2 : at least one protection profile */
+    if( len < 2 )
+        return( POLARSSL_ERR_SSL_BAD_HS_CLIENT_HELLO );
+
+    /*
+     * Use our order of preference
+     */
+    for( i=0; i < ssl->dtls_srtp_profiles_list_len; i++)
+    {
+		/* parse the extension list values are listed in http://www.iana.org/assignments/srtp-protection/srtp-protection.xhtml */
+        for( j=0; j<len; j+=2 )
+        {
+			uint16_t protection_profile_value = buf[j]<<8 | buf[j+1];
+
+			switch ( protection_profile_value ) {
+				case SRTP_AES128_CM_HMAC_SHA1_80_IANA_VALUE:
+					client_protection = SRTP_AES128_CM_HMAC_SHA1_80;
+					break;
+				case SRTP_AES128_CM_HMAC_SHA1_32_IANA_VALUE:
+					client_protection = SRTP_AES128_CM_HMAC_SHA1_32;
+					break;
+				case SRTP_NULL_HMAC_SHA1_80_IANA_VALUE:
+					client_protection = SRTP_NULL_HMAC_SHA1_80;
+					break;
+				case SRTP_NULL_HMAC_SHA1_32_IANA_VALUE:
+					client_protection = SRTP_NULL_HMAC_SHA1_32;
+					break;
+				default:
+					client_protection = SRTP_UNSET_PROFILE;
+					break;
+			}
+
+			if (client_protection == ssl->dtls_srtp_profiles_list[i]) {
+				ssl->chosen_dtls_srtp_profile = ssl->dtls_srtp_profiles_list[i];
+				return 0;
+			}
+        }
+    }
+
+	/* If we get there, no match was found */
+	ssl->chosen_dtls_srtp_profile = SRTP_UNSET_PROFILE;
+    ssl_send_alert_message( ssl, SSL_ALERT_LEVEL_FATAL,
+                            SSL_ALERT_MSG_HANDSHAKE_FAILURE );
+    return( POLARSSL_ERR_SSL_BAD_HS_CLIENT_HELLO );
+}
+#endif /* POLARSSL_SSL_PROTO_DTLS */
+
 /*
  * Auxiliary functions for ServerHello parsing and related actions
  */
@@ -1704,6 +1775,15 @@ read_record_header:
             break;
 #endif /* POLARSSL_SSL_SESSION_TICKETS */
 
+#if defined(POLARSSL_SSL_PROTO_DTLS)
+		case TLS_EXT_USE_SRTP:
+			SSL_DEBUG_MSG( 3, ( "found use_srtp extension" ) );
+			ret = ssl_parse_use_srtp_ext( ssl, ext + 4, ext_size );
+			if ( ret != 0)
+				return( ret );
+			break;
+#endif /* POLARSSL_SSL_PROTO_DTLS */
+
         default:
             SSL_DEBUG_MSG( 3, ( "unknown extension found: %d (ignoring)",
                            ext_id ) );
@@ -2006,6 +2086,53 @@ static void ssl_write_alpn_ext( ssl_context *ssl,
 }
 #endif /* POLARSSL_ECDH_C || POLARSSL_ECDSA_C */
 
+#if defined(POLARSSL_SSL_PROTO_DTLS )
+static void ssl_write_use_srtp_ext( ssl_context *ssl,
+                                unsigned char *buf, size_t *olen )
+{
+    if( ssl->chosen_dtls_srtp_profile == SRTP_UNSET_PROFILE )
+    {
+        *olen = 0;
+        return;
+    }
+
+    SSL_DEBUG_MSG( 3, ( "server hello, adding use_srtp extension" ) );
+
+	/* extension */
+    buf[0] = (unsigned char)( ( TLS_EXT_USE_SRTP >> 8 ) & 0xFF );
+    buf[1] = (unsigned char)( ( TLS_EXT_USE_SRTP      ) & 0xFF );
+	/* length (2: only one profile and srtp_mki not supported) */
+	buf[2] = 0x00;
+	buf[3] = 0x02;
+
+	switch (ssl->chosen_dtls_srtp_profile) {
+		case SRTP_AES128_CM_HMAC_SHA1_80:
+			buf[4] = (unsigned char)( ( SRTP_AES128_CM_HMAC_SHA1_80_IANA_VALUE >> 8) & 0xFF );
+			buf[5] = (unsigned char)( ( SRTP_AES128_CM_HMAC_SHA1_80_IANA_VALUE     ) & 0xFF );
+			break;
+		case SRTP_AES128_CM_HMAC_SHA1_32:
+			buf[4] = (unsigned char)( ( SRTP_AES128_CM_HMAC_SHA1_32_IANA_VALUE >> 8) & 0xFF );
+			buf[5] = (unsigned char)( ( SRTP_AES128_CM_HMAC_SHA1_32_IANA_VALUE     ) & 0xFF );
+			break;
+		case SRTP_NULL_HMAC_SHA1_80:
+			buf[4] = (unsigned char)( ( SRTP_NULL_HMAC_SHA1_80_IANA_VALUE >> 8) & 0xFF );
+			buf[5] = (unsigned char)( ( SRTP_NULL_HMAC_SHA1_80_IANA_VALUE     ) & 0xFF );
+			break;
+		case SRTP_NULL_HMAC_SHA1_32:
+			buf[4] = (unsigned char)( ( SRTP_NULL_HMAC_SHA1_32_IANA_VALUE >> 8) & 0xFF );
+			buf[5] = (unsigned char)( ( SRTP_NULL_HMAC_SHA1_32_IANA_VALUE     ) & 0xFF );
+			break;
+		default:
+			*olen = 0;
+			return;
+			break;
+	}
+
+	*olen = 6;
+}
+#endif /* POLARSSL_SSL_PROTO_DTLS */
+
+
 #if defined(POLARSSL_SSL_DTLS_HELLO_VERIFY)
 static int ssl_write_hello_verify_request( ssl_context *ssl )
 {
@@ -2249,6 +2376,11 @@ static int ssl_write_server_hello( ssl_context *ssl )
 
 #if defined(POLARSSL_SSL_ALPN)
     ssl_write_alpn_ext( ssl, p + 2 + ext_len, &olen );
+    ext_len += olen;
+#endif
+
+#if defined(POLARSSL_SSL_PROTO_DTLS)
+	ssl_write_use_srtp_ext( ssl, p + 2 + ext_len, &olen);
     ext_len += olen;
 #endif
 

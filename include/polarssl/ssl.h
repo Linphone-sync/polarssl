@@ -432,6 +432,8 @@
 
 #define TLS_EXT_SIG_ALG                     13
 
+#define TLS_EXT_USE_SRTP                    14
+
 #define TLS_EXT_ALPN                        16
 
 #define TLS_EXT_SESSION_TICKET              35
@@ -444,6 +446,14 @@
  * of state of the renegotiation flag, so no indicator is required)
  */
 #define TLS_EXT_SUPPORTED_POINT_FORMATS_PRESENT (1 << 0)
+
+/*
+ * use_srtp extension protection profiles values as defined in http://www.iana.org/assignments/srtp-protection/srtp-protection.xhtml
+ */
+#define SRTP_AES128_CM_HMAC_SHA1_80_IANA_VALUE     0x0001
+#define SRTP_AES128_CM_HMAC_SHA1_32_IANA_VALUE     0x0002
+#define SRTP_NULL_HMAC_SHA1_80_IANA_VALUE          0x0005
+#define SRTP_NULL_HMAC_SHA1_32_IANA_VALUE          0x0006
 
 /*
  * Size defines
@@ -750,6 +760,18 @@ struct _ssl_flight_item
     unsigned char type;     /*!< type of the message: handshake or CCS  */
     ssl_flight_item *next;  /*!< next handshake message(s)              */
 };
+
+/*
+ * List of SRTP profiles for DTLS-SRTP
+ */
+enum DTLS_SRTP_protection_profiles {
+	SRTP_UNSET_PROFILE,
+	SRTP_AES128_CM_HMAC_SHA1_80,
+	SRTP_AES128_CM_HMAC_SHA1_32,
+	SRTP_NULL_HMAC_SHA1_80,
+	SRTP_NULL_HMAC_SHA1_32,
+};
+
 #endif /* POLARSSL_SSL_PROTO_DTLS */
 
 struct _ssl_context
@@ -966,6 +988,17 @@ struct _ssl_context
     const char **alpn_list;     /*!<  ordered list of supported protocols   */
     const char *alpn_chosen;    /*!<  negotiated protocol                   */
 #endif
+
+#if defined(POLARSSL_SSL_PROTO_DTLS)
+	/*
+	 * use_srtp extension
+	 */
+	enum DTLS_SRTP_protection_profiles *dtls_srtp_profiles_list;	/*!< ordered list of supported srtp profile */
+	size_t dtls_srtp_profiles_list_len; /*!< number of supported profiles */
+	enum DTLS_SRTP_protection_profiles chosen_dtls_srtp_profile;	/*!< negotiated profile							*/
+	unsigned char *dtls_srtp_keys; /*<! master keys and master salt for SRTP generated during handshake */
+	size_t dtls_srtp_keys_len; /*<! length in bytes of master keys and master salt for SRTP generated during handshake */
+#endif /* POLARSSL_SSL_PROTO_DTLS */
 
     /*
      * Information for DTLS hello verify
@@ -1675,6 +1708,32 @@ int ssl_set_alpn_protocols( ssl_context *ssl, const char **protos );
  */
 const char *ssl_get_alpn_protocol( const ssl_context *ssl );
 #endif /* POLARSSL_SSL_ALPN */
+
+#if defined(POLARSSL_SSL_PROTO_DTLS)
+/**
+ * \brief                   Set the supported DTLS-SRTP protection profiles.
+ *
+ * \param ssl               SSL context
+ * \param protos            List of supported protection profiles,
+ *                          in decreasing preference order.
+ * \param profiles_number   Number of supported profiles.
+ *
+ * \return         0 on success, or POLARSSL_ERR_SSL_BAD_INPUT_DATA.
+ */
+int ssl_set_dtls_srtp_protection_profiles( ssl_context *ssl, const enum DTLS_SRTP_protection_profiles *profiles, size_t profiles_number);
+
+/**
+ * \brief          Get the negotiated DTLS-SRTP Protection Profile.
+ *                 This function should be called after the handshake is
+ *                 completed.
+ *
+ * \param ssl      SSL context
+ *
+ * \return         Protection Profile enum member, or NULL if no protocol was negotiated.
+ */
+enum DTLS_SRTP_protection_profiles ssl_get_dtls_srtp_protection_profile( const ssl_context *ssl);
+#endif /* POLARSSL_SSL_PROTO_DTLS */
+
 
 /**
  * \brief          Set the maximum supported version sent from the client side
