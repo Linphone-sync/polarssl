@@ -553,6 +553,28 @@ int ssl_derive_keys( ssl_context *ssl )
     else
         SSL_DEBUG_MSG( 3, ( "no premaster (session resumed)" ) );
 
+#if defined(POLARSSL_SSL_PROTO_DTLS)
+	/* check if we have a chosen srtp protection profile */
+	if (ssl->chosen_dtls_srtp_profile != SRTP_UNSET_PROFILE) {
+		int i;
+		/* derive key material for srtp session RFC5764 section 4.2 */
+		/* master key and master salt are respectively 128 bits and 112 bits for all currently available modes :
+		 * SRTP_AES128_CM_HMAC_SHA1_80, SRTP_AES128_CM_HMAC_SHA1_32
+		 * SRTP_NULL_HMAC_SHA1_80, SRTP_NULL_HMAC_SHA1_32
+		 * So we must export 2*(128 + 112) = 480 bits
+		 */
+		ssl->dtls_srtp_keys_len = 60;
+
+		ssl->dtls_srtp_keys = (unsigned char *)polarssl_malloc(ssl->dtls_srtp_keys_len);
+		handshake->tls_prf( session->master, 48, "EXTRACTOR-dtls_srtp",
+                        handshake->randbytes, 64, ssl->dtls_srtp_keys, ssl->dtls_srtp_keys_len );
+		for(i=0; i<(int)ssl->dtls_srtp_keys_len; i++) {
+			printf("%02x", ssl->dtls_srtp_keys[i]);
+		}
+		printf("\n");
+	}
+#endif /* POLARSSL_SSL_PROTO_DTLS */
+
     /*
      * Swap the client and server random values.
      */
@@ -582,22 +604,6 @@ int ssl_derive_keys( ssl_context *ssl )
     SSL_DEBUG_BUF( 4, "random bytes", handshake->randbytes, 64 );
     SSL_DEBUG_BUF( 4, "key block", keyblk, 256 );
 
-#if defined(POLARSSL_SSL_PROTO_DTLS)
-	/* check if we have a chosen srtp protection profile */
-	if (ssl->chosen_dtls_srtp_profile != SRTP_UNSET_PROFILE) {
-		/* derive key material for srtp session RFC5764 section 4.2 */
-		/* master key and master salt are respectively 128 bits and 112 bits for all currently available modes :
-		 * SRTP_AES128_CM_HMAC_SHA1_80, SRTP_AES128_CM_HMAC_SHA1_32
-		 * SRTP_NULL_HMAC_SHA1_80, SRTP_NULL_HMAC_SHA1_32
-		 * So we must export 2*(128 + 112) = 480 bytes
-		 */
-		ssl->dtls_srtp_keys_len = 480;
-
-		ssl->dtls_srtp_keys = (unsigned char *)polarssl_malloc(ssl->dtls_srtp_keys_len);
-		handshake->tls_prf( session->master, 48, "EXTRACTOR-dtls_srtp",
-                        handshake->randbytes, 64, ssl->dtls_srtp_keys, ssl->dtls_srtp_keys_len );
-	}
-#endif /* POLARSSL_SSL_PROTO_DTLS */
 
     polarssl_zeroize( handshake->randbytes, sizeof( handshake->randbytes ) );
 
