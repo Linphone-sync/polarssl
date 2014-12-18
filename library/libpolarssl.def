@@ -12,14 +12,22 @@ EXPORTS
 	entropy_func
 	entropy_init
 	error_strerror
+	mpi_free
+	mpi_init
 	mpi_read_string
+	pem_write_buffer
 	pk_can_do
 	pk_free
+	pk_info_from_type
 	pk_init
+	pk_init_ctx
 	pk_parse_key
 	pk_parse_keyfile
+	pk_write_key_pem
 	rsa_copy
+	rsa_gen_key
 	rsa_free
+	sha1
 	sha1_hmac
 	sha256
 	sha256_hmac
@@ -48,3 +56,14 @@ EXPORTS
 	x509_crt_info
 	x509_crt_parse_file
 	x509_crt_parse_path
+	x509_dn_gets
+	x509write_crt_free
+	x509write_crt_init
+	x509write_crt_pem
+	x509write_crt_set_issuer_key
+	x509write_crt_set_issuer_name
+	x509write_crt_set_md_alg
+	x509write_crt_set_serial
+	x509write_crt_set_subject_key
+	x509write_crt_set_subject_name
+	x509write_crt_set_validity
