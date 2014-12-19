@@ -31,6 +31,7 @@ EXPORTS
 	sha1_hmac
 	sha256
 	sha256_hmac
+	sha512
 	ssl_close_notify
 	ssl_free
 	ssl_handshake
