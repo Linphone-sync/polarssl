@@ -65,6 +65,7 @@ libpolarssl_la_SOURCES= \
 	x509write_crt.c \
 	x509write_csr.c \
 	xtea.c \
-	ssl_cookie.c
+	ssl_cookie.c \
+	hmac_drbg.c
 
 AM_CPPFLAGS=-I$(top_srcdir)/include
