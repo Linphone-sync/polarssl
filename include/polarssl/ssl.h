@@ -1729,7 +1729,7 @@ int ssl_set_dtls_srtp_protection_profiles( ssl_context *ssl, const enum DTLS_SRT
  *
  * \param ssl      SSL context
  *
- * \return         Protection Profile enum member, or NULL if no protocol was negotiated.
+ * \return         Protection Profile enum member, SRTP_UNSET_PROFILE if no protocol was negotiated.
  */
 enum DTLS_SRTP_protection_profiles ssl_get_dtls_srtp_protection_profile( const ssl_context *ssl);
 #endif /* POLARSSL_SSL_PROTO_DTLS */
