@@ -41,7 +41,6 @@ EXPORTS
 	ssl_cookie_setup
 	ssl_cookie_write
 	ssl_free
-	ssl_get_bio_timeout
 	ssl_get_dtls_srtp_protection_profile
 	ssl_get_peer_cert
 	ssl_get_session
@@ -52,8 +51,9 @@ EXPORTS
 	ssl_session_reset
 	ssl_set_authmode
 	ssl_set_bio
+	ssl_set_bio_timeout
 	ssl_set_ca_chain
-	ssl_set_client_transport
+	ssl_set_client_transport_id
 	ssl_set_dtls_cookies
 	ssl_set_dtls_srtp_protection_profiles
 	ssl_set_endpoint
