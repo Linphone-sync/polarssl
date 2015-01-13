@@ -32,8 +32,19 @@ EXPORTS
 	sha256
 	sha256_hmac
 	sha512
+	ssl_cache_get
+	ssl_cache_init
+	ssl_cache_set
 	ssl_close_notify
+	ssl_cookie_check
+	ssl_cookie_init
+	ssl_cookie_setup
+	ssl_cookie_write
 	ssl_free
+	ssl_get_bio_timeout
+	ssl_get_dtls_srtp_protection_profile
+	ssl_get_peer_cert
+	ssl_get_session
 	ssl_handshake
 	ssl_handshake_step
 	ssl_init
@@ -42,13 +53,20 @@ EXPORTS
 	ssl_set_authmode
 	ssl_set_bio
 	ssl_set_ca_chain
+	ssl_set_client_transport
+	ssl_set_dtls_cookies
+	ssl_set_dtls_srtp_protection_profiles
 	ssl_set_endpoint
 	ssl_set_own_cert
 	ssl_set_own_cert_rsa
 	ssl_set_rng
+	ssl_set_session
+	ssl_set_session_cache
+	ssl_set_transport
 	ssl_set_verify
 	ssl_write
 	x509_crt_free
+	x509_crt_init
 	x509_crt_verify
 	x509_crt_parse_der
 	x509_crt_parse
