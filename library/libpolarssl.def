@@ -3,15 +3,18 @@ EXPORTS
 	aes_crypt_cfb128
 	aes_setkey_enc
 	base64_encode
+	ctr_drbg_free
 	ctr_drbg_init
 	ctr_drbg_random
 	dhm_calc_secret
 	dhm_free
 	dhm_make_public
 	dhm_read_public
+	entropy_free
 	entropy_func
 	entropy_init
 	error_strerror
+	md5
 	mpi_free
 	mpi_init
 	mpi_read_string
@@ -37,6 +40,7 @@ EXPORTS
 	ssl_cache_set
 	ssl_close_notify
 	ssl_cookie_check
+	ssl_cookie_free
 	ssl_cookie_init
 	ssl_cookie_setup
 	ssl_cookie_write
