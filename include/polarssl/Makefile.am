@@ -11,7 +11,9 @@ bignum.h \
 blowfish.h \
 bn_mul.h \
 camellia.h \
+ccm.h \
 certs.h \
+check_config.h \
 cipher.h \
 cipher_wrap.h \
 compat-1.2.h \
@@ -28,12 +30,14 @@ entropy_poll.h \
 error.h \
 gcm.h \
 havege.h \
+hmac_drbg.h \
 md2.h \
 md4.h \
 md5.h \
 md.h \
 md_wrap.h \
 memory.h \
+memory_buffer_alloc.h \
 net.h \
 oid.h \
 openssl.h \
@@ -45,6 +49,7 @@ pkcs12.h \
 pkcs5.h \
 pk.h \
 pk_wrap.h \
+platform.h \
 ripemd160.h \
 rsa.h \
 sha1.h \
@@ -52,6 +57,7 @@ sha256.h \
 sha512.h \
 ssl_cache.h \
 ssl_ciphersuites.h \
+ssl_cookie.h \
 ssl.h \
 threading.h \
 timing.h \

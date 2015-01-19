@@ -10,6 +10,7 @@ libpolarssl_la_SOURCES= \
 	bignum.c \
 	blowfish.c \
 	camellia.c \
+	ccm.c \
 	certs.c \
 	cipher.c \
 	cipher_wrap.c \
@@ -67,5 +68,11 @@ libpolarssl_la_SOURCES= \
 	xtea.c \
 	ssl_cookie.c \
 	hmac_drbg.c
+
+libpolarssl_la_LDFLAGS = -no-undefined
+
+if BUILD_WIN32
+	libpolarssl_la_LIBADD = -lws2_32
+endif
 
 AM_CPPFLAGS=-I$(top_srcdir)/include

@@ -20,6 +20,7 @@ case "$target_os" in
 			CPPFLAGS="$CPPFLAGS -I/usr/include"
 			LDFLAGS="$LDFLAGS -L/usr/lib"
 		fi
+		mingw_found=yes
 	;;
 esac
 
@@ -51,6 +52,8 @@ AC_TYPE_UINT64_T
 # Checks for library functions.
 AC_FUNC_FORK
 AC_CHECK_FUNCS([alarm gethostbyname gethostname gettimeofday memmove memset select socket strcasecmp strchr strstr])
+
+AM_CONDITIONAL(BUILD_WIN32, test "$mingw_found" = "yes")
 
 AC_CONFIG_FILES([Makefile
 	include/Makefile
