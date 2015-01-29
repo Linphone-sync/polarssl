@@ -68,3 +68,6 @@ libpolarssl_la_SOURCES= \
 	xtea.c
 
 AM_CPPFLAGS=-I$(top_srcdir)/include
+
+libpolarssl_la_LDFLAGS=-no-undefined
+

@@ -10,6 +10,7 @@ AM_SILENT_RULES(yes)
 
 # Checks for programs.
 AC_PROG_CC
+AC_CANONICAL_SYSTEM
 
 LT_INIT(win32-dll disable-static)
 
@@ -20,18 +21,12 @@ case "$target_os" in
 			CPPFLAGS="$CPPFLAGS -I/usr/include"
 			LDFLAGS="$LDFLAGS -L/usr/lib"
 		fi
+		LIBS="$LIBS -lws2_32"
 	;;
 esac
 
 
 # Checks for libraries.
-
-AC_CHECK_LIB([crypto], [crypto_init])
-# FIXME: Replace `main' with a function in `-lssl':
-AC_CHECK_LIB([ssl_library_init], [main])
-
-# FIXME: Replace `main' with a function in `-lz':
-#AC_CHECK_LIB([z], [main])
 
 # Checks for header files.
 AC_CHECK_HEADERS([arpa/inet.h fcntl.h float.h inttypes.h netdb.h netinet/in.h stdint.h stdlib.h string.h sys/socket.h sys/time.h unistd.h])
