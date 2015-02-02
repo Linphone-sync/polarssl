@@ -12,6 +12,7 @@ EXPORTS
 	entropy_func
 	entropy_init
 	error_strerror
+	md5
 	mpi_free
 	mpi_init
 	mpi_read_string
