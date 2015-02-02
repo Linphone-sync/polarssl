@@ -26,11 +26,10 @@
 #  POLARSSL_INCLUDE_DIRS - the polarssl include directory
 #  POLARSSL_LIBRARIES - The libraries needed to use polarssl
 
-if("${CMAKE_VERSION}" VERSION_GREATER "2.8.5")
-	include(CMakePushCheckState)
-endif("${CMAKE_VERSION}" VERSION_GREATER "2.8.5")
-include(CheckIncludeFile)
+include(CMakePushCheckState)
 include(CheckCSourceCompiles)
+include(CheckIncludeFile)
+include(CheckSymbolExists)
 
 set(_POLARSSL_ROOT_PATHS
 	${WITH_POLARSSL}
@@ -53,12 +52,7 @@ find_library(POLARSSL_LIBRARIES
 )
 
 if(POLARSSL_LIBRARIES)
-	if("${CMAKE_VERSION}" VERSION_GREATER "2.8.5")
-		cmake_push_check_state(RESET)
-	else()
-		set(SAVE_CMAKE_REQUIRED_INCLUDES ${CMAKE_REQUIRED_INCLUDES})
-		set(SAVE_CMAKE_REQUIRED_LIBRARIES ${CMAKE_REQUIRED_LIBRARIES})
-	endif()
+	cmake_push_check_state(RESET)
 	set(CMAKE_REQUIRED_INCLUDES ${POLARSSL_INCLUDE_DIRS})
 	set(CMAKE_REQUIRED_LIBRARIES ${POLARSSL_LIBRARIES})
 	check_c_source_compiles("#include <polarssl/version.h>
@@ -71,18 +65,14 @@ x509parse_crtpath(0,0);
 return 0;
 }"
 		X509PARSE_CRTPATH_OK)
-	if("${CMAKE_VERSION}" VERSION_GREATER "2.8.5")
-		cmake_pop_check_state()
-	else()
-		set(CMAKE_REQUIRED_INCLUDES ${SAVE_CMAKE_REQUIRED_INCLUDES})
-		set(CMAKE_REQUIRED_LIBRARIES ${SAVE_CMAKE_REQUIRED_LIBRARIES})
-	endif()
+	check_symbol_exists(ssl_get_dtls_srtp_protection_profile "polarssl/ssl.h" HAVE_SSL_GET_DTLS_SRTP_PROTECTION_PROFILE)
+	cmake_pop_check_state()
 endif()
 
 include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(PolarSSL
 	DEFAULT_MSG
-	POLARSSL_INCLUDE_DIRS POLARSSL_LIBRARIES
+	POLARSSL_INCLUDE_DIRS POLARSSL_LIBRARIES HAVE_POLARSSL_SSL_H
 )
 
-mark_as_advanced(POLARSSL_INCLUDE_DIRS POLARSSL_LIBRARIES)
+mark_as_advanced(POLARSSL_INCLUDE_DIRS POLARSSL_LIBRARIES HAVE_POLARSSL_SSL_H X509PARSE_CRTPATH_OK HAVE_SSL_GET_DTLS_SRTP_PROTECTION_PROFILE)
