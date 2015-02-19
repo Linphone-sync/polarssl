@@ -810,7 +810,7 @@ static int ssl_parse_use_srtp_ext( ssl_context *ssl,
     {
         /* parse the extension list values are defined in http://www.iana.org/assignments/srtp-protection/srtp-protection.xhtml */
         for (j=0; j<profile_length; j+=2) { /* parse only the protection profile, srtp_mki is not supported and ignored */
-            uint16_t protection_profile_value = buf[j]<<8 | buf[j+1];
+            uint16_t protection_profile_value = buf[j+2]<<8 | buf[j+3]; /* +2 to skip the length field */
 
             switch ( protection_profile_value ) {
                 case SRTP_AES128_CM_HMAC_SHA1_80_IANA_VALUE:
