@@ -234,13 +234,13 @@ unsigned long get_timer( struct hr_time *val, int reset )
 }
 
 DWORD WINAPI TimerProc( LPVOID uElapse )
-{   
-#if WINAPI_FAMILY_APP
+{
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+	Sleep((DWORD)uElapse);
+#else
 	HANDLE sleepEvent = CreateEventEx(NULL, NULL, CREATE_EVENT_MANUAL_RESET, EVENT_ALL_ACCESS);
 	if (!sleepEvent) return FALSE;
 	WaitForSingleObjectEx(sleepEvent, (DWORD) uElapse, FALSE);
-#else
-    Sleep( (DWORD) uElapse );
 #endif
     alarmed = 1; 
     return( TRUE );
@@ -257,12 +257,12 @@ void set_alarm( int seconds )
 
 void m_sleep( int milliseconds )
 {
-#if WINAPI_FAMILY_APP
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+	Sleep(milliseconds);
+#else
 	HANDLE sleepEvent = CreateEventEx(NULL, NULL, CREATE_EVENT_MANUAL_RESET, EVENT_ALL_ACCESS);
 	if (!sleepEvent) return;
 	WaitForSingleObjectEx(sleepEvent, milliseconds, FALSE);
-#else
-    Sleep( milliseconds );
 #endif
 }
 
