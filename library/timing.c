@@ -34,6 +34,11 @@
 #include <windows.h>
 #include <winbase.h>
 
+#if defined(__MINGW32__) || !defined(WINAPI_FAMILY_PARTITION)
+// Only use with x being WINAPI_PARTITION_DESKTOP to test if building on desktop
+#define WINAPI_FAMILY_PARTITION(x) 1
+#endif
+
 struct _hr_time
 {
     LARGE_INTEGER start;
