@@ -12,6 +12,13 @@ EXPORTS
 	entropy_func
 	entropy_init
 	error_strerror
+	gcm_auth_decrypt
+	gcm_crypt_and_tag
+	gcm_finish
+	gcm_free
+	gcm_init
+	gcm_starts
+	gcm_update
 	md5
 	mpi_free
 	mpi_init
