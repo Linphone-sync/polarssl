@@ -38,6 +38,10 @@ option(COMPILE_TESTS "Build PolarSSL tests." OFF)
 
 option(GENERATE_APIDOC "Generate API documentation of PolarSSL." OFF)
 
+if("${CMAKE_SYSTEM_NAME}" STREQUAL "WindowsPhone")
+	add_definitions(-DPOLARSSL_NO_PLATFORM_ENTROPY)
+endif()
+
 if(LIB_INSTALL_DIR)
 else()
 set(LIB_INSTALL_DIR lib)
